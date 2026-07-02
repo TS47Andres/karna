@@ -227,7 +227,6 @@ void Controller::on_stream_done(Usage usage)
         assistant_msg.tool_calls.push_back(std::move(tc));
     }
     session_.add_message(assistant_msg);
-    tui_->chat_view().add_message(assistant_msg);
 
     // Check if we need to execute tool calls
     if (stream_finish_reason_ == FinishReason::ToolCalls && !stream_tool_calls_.empty()) {
@@ -271,13 +270,8 @@ void Controller::execute_tool_calls_and_continue()
             }
         }
 
-        // Truncate result for display
-        std::string display_result = result_content;
-        if (display_result.size() > 500) {
-            display_result = display_result.substr(0, 497) + "...";
-        }
         tui_->chat_view().show_system_message(
-            "Tool '" + tc.function_name + "' executed on " + tc.arguments.substr(0, 80) + "\n" + display_result
+            "Tool '" + tc.function_name + "' executed"
         );
 
         // Add tool result to session

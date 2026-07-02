@@ -16,6 +16,7 @@ public:
     void add_message(const Message& msg);
     void append_to_last(const std::string& content);
     void add_delta(const Delta& delta);
+    void append_tool_call(const std::string& text);
     void show_system_message(const std::string& msg);
     void clear();
     void set_on_scroll_to_bottom(std::function<void()> cb);
@@ -32,4 +33,5 @@ private:
     ftxui::Element render_message(const DisplayMessage& msg) const;
     std::string role_label(MessageRole role) const;
     ftxui::Color role_color(MessageRole role) const;
+    ftxui::Color role_bg(MessageRole role) const;
 };

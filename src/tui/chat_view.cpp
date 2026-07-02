@@ -42,7 +42,16 @@ void ChatView::add_delta(const Delta& delta)
         if (messages_.empty() || messages_.back().role != MessageRole::Assistant) {
             messages_.push_back({MessageRole::Assistant, ""});
         }
-        messages_.back().content += "[Tool call: " + delta.tool_call->function_name + "(" + delta.tool_call->arguments + ")]";
+    }
+}
+
+void ChatView::append_tool_call(const std::string& text)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (messages_.empty() || messages_.back().role != MessageRole::Assistant) {
+        messages_.push_back({MessageRole::Assistant, text});
+    } else {
+        messages_.back().content += text;
     }
 }
 
@@ -85,15 +94,26 @@ Color ChatView::role_color(MessageRole role) const
     return Color::Default;
 }
 
+Color ChatView::role_bg(MessageRole role) const
+{
+    switch (role) {
+        case MessageRole::System: return Color::GrayDark;
+        case MessageRole::User: return Color::Default;
+        case MessageRole::Assistant: return Color::Default;
+        case MessageRole::Tool: return Color::Default;
+    }
+    return Color::Default;
+}
+
 Element ChatView::render_message(const DisplayMessage& msg) const
 {
     auto label = text(" " + role_label(msg.role) + " ") | color(role_color(msg.role)) | bold;
-    auto content = text(msg.content) | color(Color::Default);
+    auto content = paragraph(msg.content) | color(Color::White);
     return vbox(Elements{
                label,
-               content
-           }) |
-           size(HEIGHT, LESS_THAN, 4096);
+               content,
+               text("")
+           });
 }
 
 Element ChatView::render()
@@ -103,12 +123,11 @@ Element ChatView::render()
     Elements children;
     for (const auto& msg : messages_) {
         children.push_back(render_message(msg));
-        children.push_back(separator());
     }
 
     if (children.empty()) {
         children.push_back(text(" Welcome to Karna! Type a message to start.") | dim | center);
     }
 
-    return vbox(std::move(children)) | vscroll_indicator | yflex | size(HEIGHT, LESS_THAN, 4096);
+    return vbox(std::move(children)) | yflex;
 }

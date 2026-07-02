@@ -20,6 +20,15 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(ftxui)
 
+# Patch FTXUI input component to use blinking block cursor instead of bar cursor
+set(_ftxui_input "${ftxui_SOURCE_DIR}/src/ftxui/component/input.cpp")
+if(EXISTS "${_ftxui_input}")
+  file(READ "${_ftxui_input}" _input_src)
+  string(REPLACE "focusCursorBarBlinking" "focusCursorBlockBlinking" _input_src "${_input_src}")
+  file(WRITE "${_ftxui_input}" "${_input_src}")
+endif()
+unset(_ftxui_input)
+
 FetchContent_Declare(
   CLI11
   GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git

@@ -12,7 +12,7 @@ struct OpenRouterProvider::WriteCtx {
     std::atomic<bool>* abort_flag;
     std::function<void(Delta)> const* on_delta;
     std::function<void(std::string)> const* on_error;
-    std::function<void(Usage)> const* on_done;
+    Usage final_usage;
     std::map<int, ToolCall> accumulated_calls;
 };
 
@@ -169,13 +169,9 @@ size_t OpenRouterProvider::write_callback(char* data, size_t size, size_t nmemb,
                 bool has_content = false;
 
                 if (j.contains("usage") && !j["usage"].is_null()) {
-                    Usage usage;
-                    usage.prompt_tokens = j["usage"].value("prompt_tokens", 0);
-                    usage.completion_tokens = j["usage"].value("completion_tokens", 0);
-                    usage.total_tokens = j["usage"].value("total_tokens", 0);
-                    if (ctx->on_done && *ctx->on_done) {
-                        (*ctx->on_done)(usage);
-                    }
+                    ctx->final_usage.prompt_tokens = j["usage"].value("prompt_tokens", 0);
+                    ctx->final_usage.completion_tokens = j["usage"].value("completion_tokens", 0);
+                    ctx->final_usage.total_tokens = j["usage"].value("total_tokens", 0);
                 }
 
                 if (j.contains("choices") && !j["choices"].empty()) {
@@ -278,7 +274,6 @@ void OpenRouterProvider::send(
         ctx.abort_flag = &abort_;
         ctx.on_delta = &on_delta;
         ctx.on_error = &on_error;
-        ctx.on_done = &on_done;
 
         curl_easy_setopt(curl, CURLOPT_URL, (config_.base_url + "/chat/completions").c_str());
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
@@ -297,6 +292,8 @@ void OpenRouterProvider::send(
                 err = "Request aborted";
             }
             if (on_error) on_error(std::string("Request failed: ") + err);
+        } else if (on_done) {
+            on_done(ctx.final_usage);
         }
 
         curl_slist_free_all(headers);
