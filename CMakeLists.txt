@@ -20,11 +20,16 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(ftxui)
 
-# Patch FTXUI input component to use blinking block cursor instead of bar cursor
+# Patch FTXUI input component:
+# 1. Use block blinking cursor instead of bar cursor
+# 2. Show cursor only on actual focus (click), not on mouse hover
+# 3. Always use block blinking cursor (even in placeholder / empty state)
 set(_ftxui_input "${ftxui_SOURCE_DIR}/src/ftxui/component/input.cpp")
 if(EXISTS "${_ftxui_input}")
   file(READ "${_ftxui_input}" _input_src)
   string(REPLACE "focusCursorBarBlinking" "focusCursorBlockBlinking" _input_src "${_input_src}")
+  string(REPLACE "      element |= focus;" "      element |= focusCursorBlockBlinking;" _input_src "${_input_src}")
+  string(REPLACE "(is_focused || hovered_)" "is_focused" _input_src "${_input_src}")
   file(WRITE "${_ftxui_input}" "${_input_src}")
 endif()
 unset(_ftxui_input)
@@ -107,6 +112,7 @@ set(SOURCES
   src/tui/app.cpp
   src/tui/chat_view.cpp
   src/tui/input_bar.cpp
+  src/tui/markdown_renderer.cpp
   src/tui/status_bar.cpp
   src/process/runner.cpp
   src/io/file_ops.cpp
@@ -124,6 +130,7 @@ set(SOURCES
 add_executable(karna ${SOURCES})
 
 target_include_directories(karna PRIVATE src)
+target_include_directories(karna PRIVATE ${md4c_SOURCE_DIR}/src)
 
 target_link_libraries(karna PRIVATE
   ftxui::screen

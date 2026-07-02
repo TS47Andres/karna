@@ -1,4 +1,5 @@
 #include "tui/app.h"
+#include <iostream>
 
 using namespace ftxui;
 
@@ -10,6 +11,7 @@ TuiApp::~TuiApp() = default;
 
 void TuiApp::run()
 {
+    std::cout << "\033[?25l";
     auto chat_component = chat_view_.build();
     auto input_component = input_bar_.build();
     auto status_component = status_bar_.build();

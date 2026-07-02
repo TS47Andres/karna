@@ -4,9 +4,11 @@
 #include <ftxui/dom/elements.hpp>
 
 #include "core/message.h"
+#include "tui/markdown_renderer.h"
 #include <vector>
 #include <string>
 #include <mutex>
+#include <functional>
 
 class ChatView {
 public:
@@ -29,6 +31,8 @@ private:
 
     std::vector<DisplayMessage> messages_;
     std::mutex mutex_;
+    bool scroll_to_bottom_ = true;
+    std::function<void()> on_scroll_to_bottom_;
     ftxui::Element render();
     ftxui::Element render_message(const DisplayMessage& msg) const;
     std::string role_label(MessageRole role) const;

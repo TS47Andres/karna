@@ -7,7 +7,24 @@ ChatView::ChatView()
 
 Component ChatView::build()
 {
-    return Renderer([this] { return render(); });
+    auto renderer = Renderer([this] { return render(); });
+    return CatchEvent(renderer, [this](Event event) {
+        if (event.is_mouse()) {
+            if (event.mouse().button == Mouse::WheelUp) {
+                scroll_to_bottom_ = false;
+            } else if (event.mouse().button == Mouse::WheelDown) {
+                scroll_to_bottom_ = true;
+            }
+            return false;
+        }
+        if (event == Event::PageUp || event == Event::Home) {
+            scroll_to_bottom_ = false;
+        }
+        if (event == Event::PageDown || event == Event::End) {
+            scroll_to_bottom_ = true;
+        }
+        return false;
+    });
 }
 
 void ChatView::add_message(const Message& msg)
@@ -69,7 +86,7 @@ void ChatView::clear()
 
 void ChatView::set_on_scroll_to_bottom(std::function<void()> cb)
 {
-    (void)cb;
+    on_scroll_to_bottom_ = std::move(cb);
 }
 
 std::string ChatView::role_label(MessageRole role) const
@@ -108,7 +125,8 @@ Color ChatView::role_bg(MessageRole role) const
 Element ChatView::render_message(const DisplayMessage& msg) const
 {
     auto label = text(" " + role_label(msg.role) + " ") | color(role_color(msg.role)) | bold;
-    auto content = paragraph(msg.content) | color(Color::White);
+    MarkdownRenderer md;
+    auto content = md.render(msg.content);
     return vbox(Elements{
                label,
                content,
@@ -129,5 +147,9 @@ Element ChatView::render()
         children.push_back(text(" Welcome to Karna! Type a message to start.") | dim | center);
     }
 
-    return vbox(std::move(children)) | yflex;
+    if (scroll_to_bottom_ && !children.empty()) {
+        children.back() = children.back() | focus;
+    }
+
+    return vbox(std::move(children)) | vscroll_indicator | yframe;
 }
