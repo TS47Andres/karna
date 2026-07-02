@@ -2,10 +2,15 @@
 
 #include <memory>
 #include <functional>
+#include <atomic>
+#include <map>
+#include <chrono>
 
 #include "config/config.h"
 #include "core/session.h"
 #include "core/provider.h"
+#include "core/message.h"
+#include "core/tool.h"
 #include "tools/registry.h"
 #include "skills/registry.h"
 #include "commands/registry.h"
@@ -26,7 +31,16 @@ private:
     CommandRegistry command_registry_;
     std::unique_ptr<TuiApp> tui_;
 
-    bool processing_{false};
+    std::atomic<bool> processing_{false};
+    std::atomic<bool> abort_pending_{false};
+    std::chrono::steady_clock::time_point last_abort_press_;
+
+    json tools_json_;
+
+    // Per-stream accumulators
+    std::string stream_content_;
+    std::map<int, ToolCall> stream_tool_calls_;
+    FinishReason stream_finish_reason_;
 
     void setup_tools();
     void setup_skills();
@@ -38,10 +52,12 @@ private:
     void handle_normal_message(const std::string& text);
 
     void send_to_provider();
-    void process_tool_calls(const std::vector<Message>& response_messages);
-    void send_tool_results(const std::vector<Message>& tool_results);
+    void build_tools_json();
+    void on_delta(const Delta& delta);
+    void on_stream_error(const std::string& error);
+    void on_stream_done(Usage usage);
+    void execute_tool_calls_and_continue();
 
-    void show_help();
-    void show_skills();
-    void show_session_info();
+    void handle_escape_key();
+    void reset_abort_pending();
 };

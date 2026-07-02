@@ -5,12 +5,15 @@
 #include <thread>
 #include <sstream>
 #include <iostream>
+#include <map>
 
 struct OpenRouterProvider::WriteCtx {
     std::string buffer;
+    std::atomic<bool>* abort_flag;
     std::function<void(Delta)> const* on_delta;
     std::function<void(std::string)> const* on_error;
     std::function<void(Usage)> const* on_done;
+    std::map<int, ToolCall> accumulated_calls;
 };
 
 OpenRouterProvider::OpenRouterProvider(const ProviderConfig& config)
@@ -19,6 +22,11 @@ OpenRouterProvider::OpenRouterProvider(const ProviderConfig& config)
     , temperature_(config.temperature)
     , max_tokens_(config.max_tokens)
 {}
+
+OpenRouterProvider::~OpenRouterProvider()
+{
+    abort();
+}
 
 std::string OpenRouterProvider::name() const
 {
@@ -45,6 +53,11 @@ void OpenRouterProvider::set_max_tokens(int max)
     max_tokens_ = max;
 }
 
+void OpenRouterProvider::abort()
+{
+    abort_.store(true);
+}
+
 std::string OpenRouterProvider::role_to_string(MessageRole role) const
 {
     switch (role) {
@@ -58,7 +71,7 @@ std::string OpenRouterProvider::role_to_string(MessageRole role) const
 
 json OpenRouterProvider::build_request_body(
     const std::vector<Message>& history,
-    const std::vector<std::string>& tool_names
+    const json& tools
 ) const
 {
     json body;
@@ -77,17 +90,19 @@ json OpenRouterProvider::build_request_body(
             if (msg.tool_call_id) {
                 j["tool_call_id"] = *msg.tool_call_id;
             }
-        } else if (msg.role == MessageRole::Assistant && msg.tool_call) {
+        } else if (msg.role == MessageRole::Assistant && !msg.tool_calls.empty()) {
             j["content"] = msg.content.empty() ? nullptr : msg.content;
-            json tool_calls = json::array();
-            json tc;
-            tc["id"] = msg.tool_call->id;
-            tc["type"] = msg.tool_call->type;
-            tc["function"] = json::object();
-            tc["function"]["name"] = msg.tool_call->function_name;
-            tc["function"]["arguments"] = msg.tool_call->arguments;
-            tool_calls.push_back(tc);
-            j["tool_calls"] = tool_calls;
+            json tc_array = json::array();
+            for (const auto& tc : msg.tool_calls) {
+                json tcj;
+                tcj["id"] = tc.id;
+                tcj["type"] = tc.type;
+                tcj["function"] = json::object();
+                tcj["function"]["name"] = tc.function_name;
+                tcj["function"]["arguments"] = tc.arguments;
+                tc_array.push_back(tcj);
+            }
+            j["tool_calls"] = tc_array;
         } else {
             j["content"] = msg.content;
         }
@@ -100,12 +115,8 @@ json OpenRouterProvider::build_request_body(
     }
     body["messages"] = messages;
 
-    auto& reg = const_cast<OpenRouterProvider*>(this)->config_; // hack to get tools
-    // tools will be resolved externally — for now, left empty
-    if (!tool_names.empty()) {
-        body["tools"] = json::array();
-        // Each tool schema must be provided by the caller or looked up from ToolRegistry
-        // We leave tool definitions to be injected by the controller
+    if (!tools.empty()) {
+        body["tools"] = tools;
     }
 
     return body;
@@ -115,6 +126,11 @@ size_t OpenRouterProvider::write_callback(char* data, size_t size, size_t nmemb,
 {
     size_t total = size * nmemb;
     auto* ctx = static_cast<WriteCtx*>(userp);
+
+    if (ctx->abort_flag && ctx->abort_flag->load()) {
+        return 0;
+    }
+
     ctx->buffer.append(data, total);
 
     size_t pos = 0;
@@ -133,7 +149,6 @@ size_t OpenRouterProvider::write_callback(char* data, size_t size, size_t nmemb,
             continue;
         }
 
-        // Parse SSE data line
         if (line.rfind("data: ", 0) == 0) {
             std::string payload = line.substr(6);
             if (payload == "[DONE]") {
@@ -191,14 +206,28 @@ size_t OpenRouterProvider::write_callback(char* data, size_t size, size_t nmemb,
                         if (d.contains("tool_calls") && !d["tool_calls"].empty()) {
                             const auto& tcs = d["tool_calls"];
                             for (const auto& tc : tcs) {
-                                ToolCall tool_call;
-                                tool_call.id = tc.value("id", "");
-                                tool_call.type = tc.value("type", "function");
-                                if (tc.contains("function")) {
-                                    tool_call.function_name = tc["function"].value("name", "");
-                                    tool_call.arguments = tc["function"].value("arguments", "");
+                                int idx = tc.value("index", 0);
+                                auto& acc = ctx->accumulated_calls[idx];
+
+                                if (tc.contains("id") && !tc["id"].is_null()) {
+                                    acc.id = tc["id"].get<std::string>();
                                 }
-                                delta.tool_call = tool_call;
+                                if (tc.contains("type") && !tc["type"].is_null()) {
+                                    acc.type = tc["type"].get<std::string>();
+                                }
+                                if (tc.contains("function")) {
+                                    const auto& fn = tc["function"];
+                                    if (fn.contains("name") && !fn["name"].is_null()) {
+                                        acc.function_name = fn["name"].get<std::string>();
+                                    }
+                                    if (fn.contains("arguments") && !fn["arguments"].is_null()) {
+                                        acc.arguments += fn["arguments"].get<std::string>();
+                                    }
+                                }
+                                acc.index = idx;
+
+                                ToolCall out = acc;
+                                delta.tool_call = out;
                                 has_content = true;
                             }
                         }
@@ -222,19 +251,21 @@ size_t OpenRouterProvider::write_callback(char* data, size_t size, size_t nmemb,
 
 void OpenRouterProvider::send(
     const std::vector<Message>& history,
-    const std::vector<std::string>& tool_names,
+    const json& tools,
     std::function<void(Delta)> on_delta,
     std::function<void(std::string)> on_error,
     std::function<void(Usage)> on_done)
 {
-    std::thread([this, history, tool_names, on_delta = std::move(on_delta), on_error = std::move(on_error), on_done = std::move(on_done)]() {
+    abort_.store(false);
+
+    std::thread([this, history, tools, on_delta = std::move(on_delta), on_error = std::move(on_error), on_done = std::move(on_done)]() {
         CURL* curl = curl_easy_init();
         if (!curl) {
             if (on_error) on_error("Failed to initialize curl");
             return;
         }
 
-        json body = build_request_body(history, tool_names);
+        json body = build_request_body(history, tools);
         std::string body_str = body.dump();
 
         struct curl_slist* headers = nullptr;
@@ -244,6 +275,7 @@ void OpenRouterProvider::send(
         headers = curl_slist_append(headers, "Accept: text/event-stream");
 
         WriteCtx ctx;
+        ctx.abort_flag = &abort_;
         ctx.on_delta = &on_delta;
         ctx.on_error = &on_error;
         ctx.on_done = &on_done;
@@ -260,7 +292,11 @@ void OpenRouterProvider::send(
 
         CURLcode res = curl_easy_perform(curl);
         if (res != CURLE_OK) {
-            if (on_error) on_error(std::string("Request failed: ") + curl_easy_strerror(res));
+            std::string err = curl_easy_strerror(res);
+            if (abort_.load()) {
+                err = "Request aborted";
+            }
+            if (on_error) on_error(std::string("Request failed: ") + err);
         }
 
         curl_slist_free_all(headers);

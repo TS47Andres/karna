@@ -9,12 +9,12 @@
 #include "tools/grep.h"
 #include "providers/openrouter.h"
 
-#include <sstream>
 #include <thread>
 
 Controller::Controller()
     : config_(Config::load())
     , session_(config_)
+    , stream_finish_reason_(FinishReason::Unknown)
 {}
 
 Controller::~Controller() = default;
@@ -46,12 +46,36 @@ void Controller::setup_provider()
     session_.set_provider(std::move(provider));
 }
 
+void Controller::build_tools_json()
+{
+    tools_json_ = json::array();
+    for (const auto* t : tool_registry_.all()) {
+        json tool;
+        tool["type"] = "function";
+        tool["function"] = json::object();
+        tool["function"]["name"] = t->name();
+        tool["function"]["description"] = t->description();
+        tool["function"]["parameters"] = t->parameters();
+        tools_json_.push_back(tool);
+    }
+    for (const auto* s : skill_registry_.all()) {
+        json tool;
+        tool["type"] = "function";
+        tool["function"] = json::object();
+        tool["function"]["name"] = s->name();
+        tool["function"]["description"] = s->description();
+        tool["function"]["parameters"] = s->parameters();
+        tools_json_.push_back(tool);
+    }
+}
+
 void Controller::run_chat(const std::string& initial_prompt)
 {
     setup_tools();
     setup_skills();
     setup_commands();
     setup_provider();
+    build_tools_json();
 
     tui_ = std::make_unique<TuiApp>();
 
@@ -68,6 +92,10 @@ void Controller::run_chat(const std::string& initial_prompt)
         handle_user_input(text);
     });
 
+    tui_->set_on_escape([this]() {
+        handle_escape_key();
+    });
+
     if (!initial_prompt.empty()) {
         handle_user_input(initial_prompt);
     }
@@ -77,9 +105,10 @@ void Controller::run_chat(const std::string& initial_prompt)
 
 void Controller::handle_user_input(const std::string& text)
 {
-    if (processing_) return;
-
+    if (processing_.load()) return;
     if (text.empty()) return;
+
+    reset_abort_pending();
 
     if (text[0] == '/') {
         size_t space = text.find(' ');
@@ -93,22 +122,9 @@ void Controller::handle_user_input(const std::string& text)
 
 void Controller::handle_slash_command(const std::string& cmd, const std::string& args)
 {
-    if (cmd == "help") {
-        show_help();
-        return;
-    }
-    if (cmd == "skills") {
-        show_skills();
-        return;
-    }
-    if (cmd == "session") {
-        show_session_info();
-        return;
-    }
-
     auto* command = command_registry_.find(cmd);
     if (command) {
-        CommandContext ctx{session_, tui_->chat_view(), [this]() { tui_->request_refresh(); }};
+        CommandContext ctx{session_, tui_->chat_view(), &command_registry_, &tool_registry_, &skill_registry_, [this]() { tui_->request_refresh(); }};
         command->execute(args, ctx);
         tui_->request_refresh();
     } else {
@@ -119,7 +135,8 @@ void Controller::handle_slash_command(const std::string& cmd, const std::string&
 
 void Controller::handle_normal_message(const std::string& text)
 {
-    processing_ = true;
+    processing_.store(true);
+    abort_pending_.store(false);
 
     Message user_msg;
     user_msg.role = MessageRole::User;
@@ -127,9 +144,10 @@ void Controller::handle_normal_message(const std::string& text)
     session_.add_message(user_msg);
     tui_->chat_view().add_message(user_msg);
 
-    Message assistant_msg;
-    assistant_msg.role = MessageRole::Assistant;
-    session_.add_message(assistant_msg);
+    // Clear stream accumulators
+    stream_content_.clear();
+    stream_tool_calls_.clear();
+    stream_finish_reason_ = FinishReason::Unknown;
 
     tui_->status_bar().set_status("Thinking...");
     tui_->status_bar().set_typing(true);
@@ -143,106 +161,177 @@ void Controller::send_to_provider()
     auto* provider = session_.provider();
     if (!provider) {
         tui_->chat_view().show_system_message("Error: No provider configured.");
-        processing_ = false;
+        processing_.store(false);
         return;
-    }
-
-    auto tool_names = tool_registry_.all_names();
-
-    // Build tool schemas for the provider
-    json tools_json = json::array();
-    for (const auto* t : tool_registry_.all()) {
-        json tool;
-        tool["type"] = "function";
-        tool["function"] = json::object();
-        tool["function"]["name"] = t->name();
-        tool["function"]["description"] = t->description();
-        tool["function"]["parameters"] = t->parameters();
-        tools_json.push_back(tool);
-    }
-    // Add skills as tools
-    for (const auto* s : skill_registry_.all()) {
-        json tool;
-        tool["type"] = "function";
-        tool["function"] = json::object();
-        tool["function"]["name"] = s->name();
-        tool["function"]["description"] = s->description();
-        tool["function"]["parameters"] = s->parameters();
-        tools_json.push_back(tool);
     }
 
     auto* tui = tui_.get();
 
     provider->send(
         session_.history(),
-        tool_names,
-        // on_delta
-        [tui, this](Delta delta) {
-            tui->chat_view().add_delta(delta);
-            tui->request_refresh();
-        },
-        // on_error
-        [tui, this](std::string error) {
-            tui->chat_view().show_system_message("Error: " + error);
-            tui->status_bar().set_status("Error");
-            tui->status_bar().set_typing(false);
-            tui->request_refresh();
-            processing_ = false;
-        },
-        // on_done
-        [tui, this](Usage usage) {
-            session_.add_usage(usage);
-            tui->status_bar().set_token_count(
-                session_.total_usage().prompt_tokens,
-                session_.total_usage().completion_tokens
-            );
-            tui->status_bar().set_status("Ready");
-            tui->status_bar().set_typing(false);
-            tui->request_refresh();
-            processing_ = false;
-        }
+        tools_json_,
+        [tui, this](Delta delta) { this->on_delta(delta); },
+        [tui, this](std::string error) { this->on_stream_error(error); },
+        [tui, this](Usage usage) { this->on_stream_done(usage); }
     );
 }
 
-void Controller::show_help()
+void Controller::on_delta(const Delta& delta)
 {
-    std::ostringstream help;
-    help << "Available commands:\n";
-    for (const auto* cmd : command_registry_.all()) {
-        help << "  /" << cmd->name() << " - " << cmd->description() << "\n";
+    if (delta.content) {
+        stream_content_ += *delta.content;
     }
-    help << "\nAvailable tools:\n";
-    for (const auto* t : tool_registry_.all()) {
-        help << "  " << t->name() << " - " << t->description() << "\n";
+    if (delta.tool_call) {
+        int idx = delta.tool_call->index;
+        auto& acc = stream_tool_calls_[idx];
+        if (!delta.tool_call->id.empty()) acc.id = delta.tool_call->id;
+        if (!delta.tool_call->type.empty()) acc.type = delta.tool_call->type;
+        if (!delta.tool_call->function_name.empty()) acc.function_name = delta.tool_call->function_name;
+        acc.arguments += delta.tool_call->arguments;
+        acc.index = idx;
     }
-    help << "\nAvailable skills:\n";
-    for (const auto* s : skill_registry_.all()) {
-        help << "  /" << s->name() << " - " << s->description() << "\n";
+    if (delta.finish_reason) {
+        stream_finish_reason_ = *delta.finish_reason;
     }
-    tui_->chat_view().show_system_message(help.str());
+    tui_->chat_view().add_delta(delta);
     tui_->request_refresh();
 }
 
-void Controller::show_skills()
+void Controller::on_stream_error(const std::string& error)
 {
-    std::ostringstream skills;
-    skills << "Available skills:\n";
-    for (const auto* s : skill_registry_.all()) {
-        skills << "  " << s->name() << " - " << s->description() << "\n";
+    if (abort_pending_.load() || abort_pending_.load()) {
+        tui_->chat_view().show_system_message("Response aborted.");
+    } else {
+        tui_->chat_view().show_system_message("Error: " + error);
     }
-    tui_->chat_view().show_system_message(skills.str());
+    tui_->status_bar().set_status(abort_pending_.load() ? "Aborted" : "Error");
+    tui_->status_bar().set_typing(false);
     tui_->request_refresh();
+    processing_.store(false);
+    abort_pending_.store(false);
 }
 
-void Controller::show_session_info()
+void Controller::on_stream_done(Usage usage)
 {
-    std::ostringstream info;
-    info << "Session info:\n";
-    info << "  Model: " << session_.model() << "\n";
-    info << "  Messages: " << session_.history().size() << "\n";
-    info << "  Tokens: " << session_.total_usage().total_tokens
-         << " (P:" << session_.total_usage().prompt_tokens
-         << " C:" << session_.total_usage().completion_tokens << ")\n";
-    tui_->chat_view().show_system_message(info.str());
-    tui_->request_refresh();
+    session_.add_usage(usage);
+    tui_->status_bar().set_token_count(
+        session_.total_usage().prompt_tokens,
+        session_.total_usage().completion_tokens
+    );
+
+    // Build the final assistant message from accumulated data
+    Message assistant_msg;
+    assistant_msg.role = MessageRole::Assistant;
+    assistant_msg.content = stream_content_;
+    for (auto& [idx, tc] : stream_tool_calls_) {
+        assistant_msg.tool_calls.push_back(std::move(tc));
+    }
+    session_.add_message(assistant_msg);
+    tui_->chat_view().add_message(assistant_msg);
+
+    // Check if we need to execute tool calls
+    if (stream_finish_reason_ == FinishReason::ToolCalls && !stream_tool_calls_.empty()) {
+        tui_->status_bar().set_status("Running tools...");
+        tui_->status_bar().set_typing(true);
+        tui_->request_refresh();
+        execute_tool_calls_and_continue();
+    } else {
+        tui_->status_bar().set_status("Ready");
+        tui_->status_bar().set_typing(false);
+        tui_->request_refresh();
+        processing_.store(false);
+    }
 }
+
+void Controller::execute_tool_calls_and_continue()
+{
+    // Execute each tool call
+    for (auto& [idx, tc] : stream_tool_calls_) {
+        Tool* tool = tool_registry_.find(tc.function_name);
+        if (!tool) {
+            Skill* skill = skill_registry_.find(tc.function_name);
+            if (skill) {
+                tool = skill;
+            }
+        }
+
+        std::string result_content;
+        if (!tool) {
+            result_content = "Error: Unknown tool '" + tc.function_name + "'";
+        } else {
+            try {
+                json args = json::parse(tc.arguments);
+                ToolResult result = tool->execute(args);
+                result_content = result.output;
+                if (!result.success) {
+                    result_content = "Error: " + result.output;
+                }
+            } catch (const std::exception& e) {
+                result_content = std::string("Error parsing arguments: ") + e.what();
+            }
+        }
+
+        // Truncate result for display
+        std::string display_result = result_content;
+        if (display_result.size() > 500) {
+            display_result = display_result.substr(0, 497) + "...";
+        }
+        tui_->chat_view().show_system_message(
+            "Tool '" + tc.function_name + "' executed on " + tc.arguments.substr(0, 80) + "\n" + display_result
+        );
+
+        // Add tool result to session
+        Message result_msg;
+        result_msg.role = MessageRole::Tool;
+        result_msg.content = result_content;
+        result_msg.tool_call_id = tc.id;
+        session_.add_message(result_msg);
+    }
+
+    // Clear accumulators for the next round
+    stream_content_.clear();
+    stream_tool_calls_.clear();
+    stream_finish_reason_ = FinishReason::Unknown;
+
+    tui_->status_bar().set_status("Thinking...");
+    tui_->status_bar().set_typing(true);
+    tui_->request_refresh();
+
+    send_to_provider();
+}
+
+void Controller::handle_escape_key()
+{
+    if (!processing_.load()) return;
+
+    if (abort_pending_.load()) {
+        // Second press: actually abort
+        auto* provider = session_.provider();
+        if (provider) {
+            provider->abort();
+        }
+        tui_->status_bar().set_status("Aborting...");
+        tui_->request_refresh();
+        abort_pending_.store(false);
+        processing_.store(false);
+    } else {
+        // First press: show pending
+        abort_pending_.store(true);
+        last_abort_press_ = std::chrono::steady_clock::now();
+        tui_->status_bar().set_status("Press F5 again to abort");
+        tui_->request_refresh();
+    }
+}
+
+void Controller::reset_abort_pending()
+{
+    if (abort_pending_.load()) {
+        abort_pending_.store(false);
+        if (processing_.load()) {
+            tui_->status_bar().set_status("Thinking...");
+            tui_->request_refresh();
+        }
+    }
+}
+
+

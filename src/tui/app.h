@@ -8,6 +8,7 @@
 #include "tui/status_bar.h"
 #include "core/command.h"
 #include <memory>
+#include <functional>
 
 class TuiApp {
 public:
@@ -21,6 +22,8 @@ public:
     InputBar& input_bar();
     StatusBar& status_bar();
 
+    void set_on_escape(std::function<void()> callback);
+
     void request_refresh();
 
 private:
@@ -30,4 +33,6 @@ private:
     ChatView chat_view_;
     InputBar input_bar_;
     StatusBar status_bar_;
+
+    std::function<void()> on_escape_;
 };

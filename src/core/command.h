@@ -7,10 +7,16 @@
 
 class Session;
 class ChatView;
+class ToolRegistry;
+class SkillRegistry;
+class CommandRegistry;
 
 struct CommandContext {
     Session& session;
     ChatView& chat_view;
+    CommandRegistry* command_registry{nullptr};
+    ToolRegistry* tool_registry{nullptr};
+    SkillRegistry* skill_registry{nullptr};
     std::function<void()> request_rerender;
 };
 

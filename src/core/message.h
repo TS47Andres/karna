@@ -17,6 +17,7 @@ struct ToolCall {
     std::string type;
     std::string function_name;
     std::string arguments;
+    int index{-1};
 };
 
 enum class FinishReason {
@@ -37,7 +38,7 @@ struct Message {
     MessageRole role;
     std::string content;
     std::optional<std::string> name;
-    std::optional<ToolCall> tool_call;
+    std::vector<ToolCall> tool_calls;
     std::optional<std::string> tool_call_id;
 };
 

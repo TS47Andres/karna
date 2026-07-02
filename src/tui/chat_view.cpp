@@ -14,8 +14,8 @@ void ChatView::add_message(const Message& msg)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     std::string content = msg.content;
-    if (msg.tool_call) {
-        content += "\n[Tool call: " + msg.tool_call->function_name + "]";
+    for (const auto& tc : msg.tool_calls) {
+        content += "\n[Tool call: " + tc.function_name + "]";
     }
     messages_.push_back({msg.role, content});
 }

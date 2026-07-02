@@ -33,7 +33,16 @@ void TuiApp::run()
         });
     });
 
-    main_component_ = renderer;
+    main_component_ = CatchEvent(renderer, [this](Event event) {
+        if (event == Event::F5) {
+            if (on_escape_) {
+                on_escape_();
+            }
+            return true;
+        }
+        return false;
+    });
+
     screen_.Loop(main_component_);
 }
 
@@ -55,6 +64,11 @@ InputBar& TuiApp::input_bar()
 StatusBar& TuiApp::status_bar()
 {
     return status_bar_;
+}
+
+void TuiApp::set_on_escape(std::function<void()> callback)
+{
+    on_escape_ = std::move(callback);
 }
 
 void TuiApp::request_refresh()
