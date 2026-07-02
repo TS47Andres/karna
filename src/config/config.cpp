@@ -10,7 +10,7 @@ Config Config::default_config()
 {
     Config cfg;
     cfg.openrouter.base_url = "https://openrouter.ai/api/v1";
-    cfg.openrouter.default_model = "openai/gpt-4o";
+    cfg.openrouter.default_model = "deepseek/deepseek-v4-flash";
     cfg.openrouter.max_tokens = 4096;
     cfg.openrouter.temperature = 0.7;
     cfg.openrouter.api_key = "";
