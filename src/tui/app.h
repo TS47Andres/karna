@@ -1,0 +1,33 @@
+#pragma once
+
+#include <ftxui/component/screen_interactive.hpp>
+#include <ftxui/component/component.hpp>
+
+#include "tui/chat_view.h"
+#include "tui/input_bar.h"
+#include "tui/status_bar.h"
+#include "core/command.h"
+#include <memory>
+
+class TuiApp {
+public:
+    TuiApp();
+    ~TuiApp();
+
+    void run();
+    void stop();
+
+    ChatView& chat_view();
+    InputBar& input_bar();
+    StatusBar& status_bar();
+
+    void request_refresh();
+
+private:
+    ftxui::ScreenInteractive screen_;
+    ftxui::Component main_component_;
+
+    ChatView chat_view_;
+    InputBar input_bar_;
+    StatusBar status_bar_;
+};
