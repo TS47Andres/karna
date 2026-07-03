@@ -127,11 +127,17 @@ Element ChatView::render_message(const DisplayMessage& msg) const
     auto label = text(" " + role_label(msg.role) + " ") | color(role_color(msg.role)) | bold;
     MarkdownRenderer md;
     auto content = md.render(msg.content);
-    return vbox(Elements{
-               label,
-               content,
-               text("")
-           });
+
+    auto bar = text("") | bgcolor(role_color(msg.role)) | size(WIDTH, EQUAL, 2);
+
+    return hbox({
+        bar,
+        vbox({
+            label,
+            content,
+            text(""),
+        }) | flex,
+    });
 }
 
 Element ChatView::render()
@@ -144,7 +150,11 @@ Element ChatView::render()
     }
 
     if (children.empty()) {
-        children.push_back(text(" Welcome to Karna! Type a message to start.") | dim | center);
+        auto welcome = vbox({
+            text(" Welcome to Karna! ") | bold | color(Color::CyanLight),
+            text(" Type a message to start, or /help for commands ") | dim,
+        }) | center;
+        children.push_back(welcome);
     }
 
     if (scroll_to_bottom_ && !children.empty()) {

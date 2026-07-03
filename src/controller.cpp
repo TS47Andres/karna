@@ -92,6 +92,8 @@ void Controller::run_chat(const std::string& initial_prompt)
         handle_user_input(text);
     });
 
+    tui_->input_bar().set_command_registry(&command_registry_);
+
     tui_->set_on_escape([this]() {
         handle_escape_key();
     });
@@ -187,7 +189,7 @@ void Controller::on_delta(const Delta& delta)
         if (!delta.tool_call->id.empty()) acc.id = delta.tool_call->id;
         if (!delta.tool_call->type.empty()) acc.type = delta.tool_call->type;
         if (!delta.tool_call->function_name.empty()) acc.function_name = delta.tool_call->function_name;
-        acc.arguments += delta.tool_call->arguments;
+        acc.arguments = delta.tool_call->arguments;
         acc.index = idx;
     }
     if (delta.finish_reason) {
@@ -223,13 +225,19 @@ void Controller::on_stream_done(Usage usage)
     Message assistant_msg;
     assistant_msg.role = MessageRole::Assistant;
     assistant_msg.content = stream_content_;
-    for (auto& [idx, tc] : stream_tool_calls_) {
+
+    // Extract tool calls into a local before any move operations
+    auto tool_calls_to_process = std::move(stream_tool_calls_);
+    stream_tool_calls_.clear();
+    for (auto& [idx, tc] : tool_calls_to_process) {
         assistant_msg.tool_calls.push_back(std::move(tc));
     }
     session_.add_message(assistant_msg);
 
     // Check if we need to execute tool calls
-    if (stream_finish_reason_ == FinishReason::ToolCalls && !stream_tool_calls_.empty()) {
+    if (stream_finish_reason_ == FinishReason::ToolCalls && !tool_calls_to_process.empty()) {
+        // Restore into member for execute_tool_calls_and_continue
+        stream_tool_calls_ = std::move(tool_calls_to_process);
         tui_->status_bar().set_status("Running tools...");
         tui_->status_bar().set_typing(true);
         tui_->request_refresh();
@@ -278,7 +286,9 @@ void Controller::execute_tool_calls_and_continue()
         Message result_msg;
         result_msg.role = MessageRole::Tool;
         result_msg.content = result_content;
-        result_msg.tool_call_id = tc.id;
+        if (!tc.id.empty()) {
+            result_msg.tool_call_id = tc.id;
+        }
         session_.add_message(result_msg);
     }
 

@@ -1,4 +1,5 @@
 #include "providers/openrouter.h"
+#include "core/system_prompt.h"
 #include "token/counter.h"
 
 #include <curl/curl.h>
@@ -81,6 +82,12 @@ json OpenRouterProvider::build_request_body(
     body["temperature"] = temperature_;
 
     json messages = json::array();
+
+    json sys_msg;
+    sys_msg["role"] = "system";
+    sys_msg["content"] = karna::SYSTEM_PROMPT;
+    messages.push_back(sys_msg);
+
     for (const auto& msg : history) {
         json j;
         j["role"] = role_to_string(msg.role);

@@ -33,16 +33,19 @@ void StatusBar::set_typing(bool typing)
 
 Element StatusBar::render()
 {
-    auto model_elem = text(" " + model_) | color(Color::CyanLight);
-    auto status_elem = text(" " + status_) | color(typing_ ? Color::GreenLight : Color::GrayDark);
+    auto model_elem = text(" " + model_) | color(Color::CyanLight) | bold;
+    auto status_elem = text(" " + status_) | color(typing_ ? Color::GreenLight : Color::GrayDark) | flex;
 
-    auto tokens = " tk(P:" + std::to_string(prompt_tokens_) + " C:" + std::to_string(completion_tokens_) + ") ";
-    auto tokens_elem = text(tokens) | dim;
+    Element tokens_elem = text("") | size(WIDTH, EQUAL, 0);
+    if (prompt_tokens_ > 0 || completion_tokens_ > 0) {
+        auto tokens = " P:" + std::to_string(prompt_tokens_) + " C:" + std::to_string(completion_tokens_) + " ";
+        tokens_elem = text(tokens) | dim;
+    }
 
     return hbox({
                model_elem,
-               separator() | size(WIDTH, EQUAL, 1),
-               status_elem | flex,
+               separator() | color(Color::CyanLight) | size(WIDTH, EQUAL, 1),
+               status_elem,
                tokens_elem,
            }) |
            size(HEIGHT, EQUAL, 1);

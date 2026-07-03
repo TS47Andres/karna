@@ -1,5 +1,8 @@
 #include "tui/input_bar.h"
+#include "core/command.h"
 #include <ftxui/component/component_options.hpp>
+#include <algorithm>
+#include <cctype>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -72,54 +75,174 @@ InputBar::InputBar()
 
 Component InputBar::build()
 {
-    auto input_content = std::make_shared<std::string>();
+    input_content_ = std::make_shared<std::string>();
 
     InputOption option;
     option.placeholder = "Type a message... (/help for commands)";
     option.transform = [](InputState state) {
         return state.element | bgcolor(Color::Default) | color(Color::White);
     };
-
-    auto input = Input(input_content.get(), option);
-
-    input |= CatchEvent([this, input_content](Event event) {
-        if (event == Event::Return) {
-            std::string text = *input_content;
-            input_content->clear();
-            if (!text.empty()) {
-                history_.push_back(text);
-                history_index_ = -1;
-                if (on_submit_) on_submit_(text);
-            }
-            return true;
+    option.on_change = [this]() {
+        const auto& text = *input_content_;
+        if (text.empty() || text[0] != '/') {
+            show_suggestions_ = false;
+            return;
         }
+        update_suggestions(text.substr(1));
+    };
 
-        if (event == Event::ArrowUp && !history_.empty()) {
+    auto input = Input(input_content_.get(), option);
+
+    auto input_with_history = CatchEvent(input, [this](Event event) {
+        if (event == Event::ArrowUp && !show_suggestions_ && !history_.empty()) {
             if (history_index_ == -1) {
                 history_index_ = static_cast<int>(history_.size()) - 1;
             } else if (history_index_ > 0) {
                 --history_index_;
             }
-            *input_content = history_[history_index_];
+            *input_content_ = history_[history_index_];
             return true;
         }
-
-        if (event == Event::ArrowDown && history_index_ >= 0) {
+        if (event == Event::ArrowDown && !show_suggestions_ && history_index_ >= 0) {
             if (history_index_ < static_cast<int>(history_.size()) - 1) {
                 ++history_index_;
-                *input_content = history_[history_index_];
+                *input_content_ = history_[history_index_];
             } else {
                 history_index_ = -1;
-                input_content->clear();
+                input_content_->clear();
             }
+            return true;
+        }
+        return false;
+    });
+
+    auto interceptor = std::make_shared<PasteInterceptor>(input_with_history);
+
+    auto suggestion_renderer = Renderer([this]() -> Element {
+        return render_suggestion_list();
+    });
+
+    auto maybe_suggestions = Maybe(suggestion_renderer, [this]() { return show_suggestions_; });
+
+    auto container = Container::Vertical({
+        maybe_suggestions,
+        interceptor,
+    });
+
+    container = CatchEvent(container, [this](Event event) {
+        if (show_suggestions_ && !suggestions_.empty()) {
+            if (event == Event::ArrowUp) {
+                if (selected_index_ <= 0) {
+                    selected_index_ = static_cast<int>(suggestions_.size()) - 1;
+                } else {
+                    --selected_index_;
+                }
+                return true;
+            }
+            if (event == Event::ArrowDown) {
+                selected_index_ = (selected_index_ + 1) % static_cast<int>(suggestions_.size());
+                return true;
+            }
+            if (event == Event::Return && selected_index_ >= 0) {
+                apply_suggestion();
+                return true;
+            }
+            if (event == Event::Escape) {
+                show_suggestions_ = false;
+                selected_index_ = -1;
+                return true;
+            }
+        }
+
+        if (event == Event::Return) {
+            std::string text = *input_content_;
+            if (!text.empty()) {
+                history_.push_back(text);
+                history_index_ = -1;
+                if (on_submit_) on_submit_(text);
+            }
+            input_content_->clear();
+            show_suggestions_ = false;
             return true;
         }
 
         return false;
     });
 
-    auto interceptor = std::make_shared<PasteInterceptor>(input);
-    return interceptor;
+    container_ = container;
+    return container_;
+}
+
+void InputBar::update_suggestions(const std::string& query)
+{
+    if (!command_registry_) {
+        show_suggestions_ = false;
+        return;
+    }
+
+    suggestions_.clear();
+    selected_index_ = -1;
+
+    auto all_commands = command_registry_->all();
+    std::string lower_query;
+    for (auto c : query) lower_query += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+    for (const auto* cmd : all_commands) {
+        std::string cmd_lower;
+        for (auto c : cmd->name()) cmd_lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+        if (cmd_lower.find(lower_query) == 0) {
+            suggestions_.push_back({cmd->name(), cmd->description()});
+            if (static_cast<int>(suggestions_.size()) >= 5) break;
+        }
+    }
+
+    show_suggestions_ = !suggestions_.empty();
+    if (!suggestions_.empty()) {
+        selected_index_ = 0;
+    }
+}
+
+void InputBar::apply_suggestion()
+{
+    if (selected_index_ < 0 || selected_index_ >= static_cast<int>(suggestions_.size())) return;
+
+    *input_content_ = "/" + suggestions_[selected_index_].name + " ";
+    show_suggestions_ = false;
+    selected_index_ = -1;
+}
+
+Element InputBar::render_suggestion_list()
+{
+    if (suggestions_.empty()) return text("");
+
+    Elements lines;
+    for (int i = 0; i < static_cast<int>(suggestions_.size()); ++i) {
+        bool selected = (i == selected_index_);
+
+        auto marker = selected ? text(" > ") : text("   ");
+        auto cmd = text("/" + suggestions_[i].name);
+        auto desc = text("  " + suggestions_[i].description) | dim;
+
+        Element line;
+        if (selected) {
+            line = hbox({
+                marker,
+                cmd | bold,
+                desc | flex,
+            }) | color(Color::Black) | bgcolor(Color::CyanLight);
+        } else {
+            line = hbox({
+                marker,
+                cmd | color(Color::CyanLight) | bold,
+                desc | flex,
+            }) | color(Color::White);
+        }
+
+        lines.push_back(line);
+    }
+
+    return vbox(std::move(lines)) | borderRounded;
 }
 
 void InputBar::set_on_submit(std::function<void(std::string)> callback)
@@ -135,13 +258,20 @@ void InputBar::add_to_history(const std::string& entry)
 
 std::string InputBar::get_text() const
 {
-    return {};
+    return input_content_ ? *input_content_ : "";
 }
 
 void InputBar::clear()
 {
+    if (input_content_) input_content_->clear();
+    show_suggestions_ = false;
 }
 
 void InputBar::focus()
 {
+}
+
+void InputBar::set_command_registry(CommandRegistry* registry)
+{
+    command_registry_ = registry;
 }

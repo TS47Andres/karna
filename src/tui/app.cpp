@@ -23,14 +23,15 @@ void TuiApp::run()
 
     auto renderer = Renderer(container, [&, chat_component, input_component, status_component]() {
         auto chat_elem = chat_component->Render() | flex;
-        auto input_elem = input_component->Render() | size(HEIGHT, EQUAL, 3);
+        auto input_elem = input_component->Render();
         auto status_elem = status_component->Render();
+        auto accent = Color::CyanLight;
 
         return vbox({
             chat_elem,
-            separator(),
+            separator() | color(accent),
             input_elem,
-            separator() | bold,
+            separator() | color(accent),
             status_elem,
         });
     });
