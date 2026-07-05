@@ -5,7 +5,9 @@ using namespace ftxui;
 
 TuiApp::TuiApp()
     : screen_(ScreenInteractive::Fullscreen())
-{}
+{
+    screen_.TrackMouse(false);
+}
 
 TuiApp::~TuiApp()
 {
