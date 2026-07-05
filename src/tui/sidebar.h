@@ -3,6 +3,7 @@
 #include <ftxui/component/component.hpp>
 #include <ftxui/dom/elements.hpp>
 #include <string>
+#include <mutex>
 #include "project/context.h"
 
 class Sidebar {
@@ -15,6 +16,7 @@ public:
     void set_token_count(int prompt, int completion);
 
 private:
+    mutable std::mutex mutex_;
     ProjectContext project_ctx_;
     std::string model_{"unknown"};
     int prompt_tokens_{0};

@@ -13,22 +13,26 @@ Component Sidebar::build()
 
 void Sidebar::set_project_context(const ProjectContext& ctx)
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     project_ctx_ = ctx;
 }
 
 void Sidebar::set_model(const std::string& model)
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     model_ = model;
 }
 
 void Sidebar::set_token_count(int prompt, int completion)
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     prompt_tokens_ = prompt;
     completion_tokens_ = completion;
 }
 
 Element Sidebar::render()
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     // Extract project name from root path
     std::string project_name = "Karna";
     if (!project_ctx_.root_path.empty()) {

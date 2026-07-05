@@ -14,32 +14,38 @@ Component StatusBar::build()
 
 void StatusBar::set_model(const std::string& model)
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     model_ = model;
 }
 
 void StatusBar::set_token_count(int prompt, int completion)
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     prompt_tokens_ = prompt;
     completion_tokens_ = completion;
 }
 
 void StatusBar::set_status(const std::string& status)
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     status_ = status;
 }
 
 void StatusBar::set_typing(bool typing)
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     typing_ = typing;
 }
 
 bool StatusBar::is_typing() const
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     return typing_;
 }
 
 Element StatusBar::render()
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     auto model_elem = text(" " + model_) | color(Color::White) | bold;
     
     Element status_elem;

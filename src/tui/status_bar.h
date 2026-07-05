@@ -2,6 +2,7 @@
 
 #include <ftxui/component/component.hpp>
 #include <string>
+#include <mutex>
 
 class StatusBar {
 public:
@@ -15,6 +16,7 @@ public:
     bool is_typing() const;
 
 private:
+    mutable std::mutex mutex_;
     std::string model_;
     int prompt_tokens_{0};
     int completion_tokens_{0};
