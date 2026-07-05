@@ -147,14 +147,14 @@ Element ChatView::render_message(const DisplayMessage& msg) const
 
     if (msg.role == MessageRole::System) {
         return vbox({
-            text(" " + msg.content) | color(Color::GrayDark) | dim,
+            paragraph(" " + msg.content) | color(Color::GrayDark) | dim | flex,
             text(""),
         });
     }
 
     if (msg.role == MessageRole::Tool) {
         return vbox({
-            text(" ⚙ " + msg.content) | color(Color::GrayLight) | dim,
+            paragraph(" ⚙ " + msg.content) | color(Color::GrayLight) | dim | flex,
             text(""),
         });
     }
