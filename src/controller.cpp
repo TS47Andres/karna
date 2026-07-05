@@ -8,6 +8,7 @@
 #include "tools/glob.h"
 #include "tools/grep.h"
 #include "providers/openrouter.h"
+#include "project/context.h"
 
 #include <thread>
 
@@ -79,6 +80,10 @@ void Controller::run_chat(const std::string& initial_prompt)
 
     tui_ = std::make_unique<TuiApp>();
 
+    tui_->sidebar().set_project_context(ProjectContext::discover());
+    tui_->sidebar().set_model(session_.model());
+    tui_->sidebar().set_token_count(0, 0);
+
     tui_->status_bar().set_model(session_.model());
     tui_->status_bar().set_status("Ready");
     tui_->status_bar().set_typing(false);
@@ -128,6 +133,8 @@ void Controller::handle_slash_command(const std::string& cmd, const std::string&
     if (command) {
         CommandContext ctx{session_, tui_->chat_view(), &command_registry_, &tool_registry_, &skill_registry_, [this]() { tui_->request_refresh(); }};
         command->execute(args, ctx);
+        tui_->status_bar().set_model(session_.model());
+        tui_->sidebar().set_model(session_.model());
         tui_->request_refresh();
     } else {
         tui_->chat_view().show_system_message("Unknown command: /" + cmd + ". Type /help for available commands.");
@@ -220,6 +227,10 @@ void Controller::on_stream_done(Usage usage)
         session_.total_usage().prompt_tokens,
         session_.total_usage().completion_tokens
     );
+    tui_->sidebar().set_token_count(
+        session_.total_usage().prompt_tokens,
+        session_.total_usage().completion_tokens
+    );
 
     // Build the final assistant message from accumulated data
     Message assistant_msg;
@@ -254,6 +265,9 @@ void Controller::execute_tool_calls_and_continue()
 {
     // Execute each tool call
     for (auto& [idx, tc] : stream_tool_calls_) {
+        if (tc.function_name.empty()) {
+            continue;
+        }
         Tool* tool = tool_registry_.find(tc.function_name);
         if (!tool) {
             Skill* skill = skill_registry_.find(tc.function_name);

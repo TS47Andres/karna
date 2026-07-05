@@ -110,6 +110,7 @@ set(SOURCES
   src/mcp/server.cpp
   src/mcp/transport.cpp
   src/tui/app.cpp
+  src/tui/sidebar.cpp
   src/tui/chat_view.cpp
   src/tui/input_bar.cpp
   src/tui/markdown_renderer.cpp

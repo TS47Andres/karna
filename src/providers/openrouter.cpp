@@ -229,9 +229,11 @@ size_t OpenRouterProvider::write_callback(char* data, size_t size, size_t nmemb,
                                 }
                                 acc.index = idx;
 
-                                ToolCall out = acc;
-                                delta.tool_call = out;
-                                has_content = true;
+                                if (!acc.function_name.empty() || (tc.contains("function") && tc["function"].contains("name"))) {
+                                    ToolCall out = acc;
+                                    delta.tool_call = out;
+                                    has_content = true;
+                                }
                             }
                         }
                     }

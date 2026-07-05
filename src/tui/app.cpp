@@ -15,23 +15,36 @@ void TuiApp::run()
     auto chat_component = chat_view_.build();
     auto input_component = input_bar_.build();
     auto status_component = status_bar_.build();
+    auto sidebar_component = sidebar_.build();
 
     auto container = Container::Vertical({
         chat_component,
         input_component,
+        sidebar_component,
     });
 
-    auto renderer = Renderer(container, [&, chat_component, input_component, status_component]() {
+    auto renderer = Renderer(container, [&, chat_component, input_component, status_component, sidebar_component]() {
         auto chat_elem = chat_component->Render() | flex;
         auto input_elem = input_component->Render();
         auto status_elem = status_component->Render();
-        auto accent = Color::CyanLight;
+        auto sidebar_elem = sidebar_component->Render();
+        auto separator_color = Color::GrayDark;
+
+        auto left_side = vbox({
+            chat_elem,
+            separator() | color(separator_color),
+            input_elem,
+        }) | flex;
+
+        auto main_content = hbox({
+            left_side,
+            separator() | color(separator_color),
+            sidebar_elem,
+        }) | flex;
 
         return vbox({
-            chat_elem,
-            separator() | color(accent),
-            input_elem,
-            separator() | color(accent),
+            main_content,
+            separator() | color(separator_color),
             status_elem,
         });
     });
@@ -67,6 +80,11 @@ InputBar& TuiApp::input_bar()
 StatusBar& TuiApp::status_bar()
 {
     return status_bar_;
+}
+
+Sidebar& TuiApp::sidebar()
+{
+    return sidebar_;
 }
 
 void TuiApp::set_on_escape(std::function<void()> callback)

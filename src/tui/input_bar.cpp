@@ -118,6 +118,19 @@ Component InputBar::build()
 
     auto interceptor = std::make_shared<PasteInterceptor>(input_with_history);
 
+    auto input_renderer = Renderer(interceptor, [this, interceptor]() {
+        auto input_elem = interceptor->Render();
+        bool is_focused = interceptor->Focused();
+        auto border_color = is_focused ? Color::White : Color::GrayDark;
+        
+        return vbox({
+            hbox({
+                text(" karna ") | (is_focused ? color(Color::White) | bold : color(Color::GrayDark)),
+            }),
+            input_elem
+        }) | borderRounded | color(border_color);
+    });
+
     auto suggestion_renderer = Renderer([this]() -> Element {
         return render_suggestion_list();
     });
@@ -126,7 +139,7 @@ Component InputBar::build()
 
     auto container = Container::Vertical({
         maybe_suggestions,
-        interceptor,
+        input_renderer,
     });
 
     container = CatchEvent(container, [this](Event event) {
@@ -230,19 +243,19 @@ Element InputBar::render_suggestion_list()
                 marker,
                 cmd | bold,
                 desc | flex,
-            }) | color(Color::Black) | bgcolor(Color::CyanLight);
+            }) | color(Color::Black) | bgcolor(Color::White);
         } else {
             line = hbox({
                 marker,
-                cmd | color(Color::CyanLight) | bold,
+                cmd | color(Color::White) | bold,
                 desc | flex,
-            }) | color(Color::White);
+            }) | color(Color::GrayLight);
         }
 
         lines.push_back(line);
     }
 
-    return vbox(std::move(lines)) | borderRounded;
+    return vbox(std::move(lines)) | borderRounded | color(Color::GrayDark);
 }
 
 void InputBar::set_on_submit(std::function<void(std::string)> callback)

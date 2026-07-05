@@ -28,6 +28,28 @@ ProjectContext ProjectContext::discover(const std::string& start_path)
     if (git_root) {
         ctx.has_git = true;
         ctx.root_path = *git_root;
+
+        std::string branch = "unknown";
+        fs::path head_path = fs::path(ctx.root_path) / ".git" / "HEAD";
+        if (fs::exists(head_path)) {
+            std::ifstream ifs(head_path);
+            std::string line;
+            if (std::getline(ifs, line)) {
+                if (line.rfind("ref: refs/heads/", 0) == 0) {
+                    branch = line.substr(16);
+                    while (!branch.empty() && (branch.back() == '\r' || branch.back() == '\n' || branch.back() == ' ')) {
+                        branch.pop_back();
+                    }
+                } else {
+                    if (line.size() > 7) {
+                        branch = line.substr(0, 7);
+                    } else {
+                        branch = line;
+                    }
+                }
+            }
+        }
+        ctx.git_branch = branch;
     }
 
     return ctx;

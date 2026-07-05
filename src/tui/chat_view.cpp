@@ -104,9 +104,9 @@ Color ChatView::role_color(MessageRole role) const
 {
     switch (role) {
         case MessageRole::System: return Color::GrayDark;
-        case MessageRole::User: return Color::Cyan;
-        case MessageRole::Assistant: return Color::Green;
-        case MessageRole::Tool: return Color::Yellow;
+        case MessageRole::User: return Color::White;
+        case MessageRole::Assistant: return Color::White;
+        case MessageRole::Tool: return Color::GrayLight;
     }
     return Color::Default;
 }
@@ -124,19 +124,49 @@ Color ChatView::role_bg(MessageRole role) const
 
 Element ChatView::render_message(const DisplayMessage& msg) const
 {
+    if (msg.role == MessageRole::User) {
+        auto user_bar = hbox({
+            text(" ❯ ") | bold | color(Color::White),
+            paragraph(msg.content) | color(Color::White) | flex,
+        }) | bgcolor(Color::RGB(38, 38, 38));
+        
+        return vbox({
+            user_bar,
+            text(""),
+        });
+    }
+
+    if (msg.role == MessageRole::Assistant) {
+        MarkdownRenderer md;
+        auto content = md.render(msg.content);
+        return vbox({
+            content,
+            text(""),
+        });
+    }
+
+    if (msg.role == MessageRole::System) {
+        return vbox({
+            text(" " + msg.content) | color(Color::GrayDark) | dim,
+            text(""),
+        });
+    }
+
+    if (msg.role == MessageRole::Tool) {
+        return vbox({
+            text(" ⚙ " + msg.content) | color(Color::GrayLight) | dim,
+            text(""),
+        });
+    }
+
     auto label = text(" " + role_label(msg.role) + " ") | color(role_color(msg.role)) | bold;
     MarkdownRenderer md;
     auto content = md.render(msg.content);
 
-    auto bar = text("") | bgcolor(role_color(msg.role)) | size(WIDTH, EQUAL, 2);
-
-    return hbox({
-        bar,
-        vbox({
-            label,
-            content,
-            text(""),
-        }) | flex,
+    return vbox({
+        label,
+        content,
+        text(""),
     });
 }
 
@@ -150,11 +180,40 @@ Element ChatView::render()
     }
 
     if (children.empty()) {
-        auto welcome = vbox({
-            text(" Welcome to Karna! ") | bold | color(Color::CyanLight),
-            text(" Type a message to start, or /help for commands ") | dim,
-        }) | center;
-        children.push_back(welcome);
+        auto title = text("   █  █  █▀▀█  █▀▀█  █▀▀█  █▀▀█   ") | bold | color(Color::White) | hcenter;
+        auto title2 = text("  █▀▀█  █▄▄█  █▄▄▀  █  █  █▄▄█   ") | bold | color(Color::White) | hcenter;
+        auto subtitle = text("Karna - Term-based AI coding harness") | hcenter | color(Color::GrayLight);
+        
+        auto section_tips = vbox({
+            text("Tips:") | bold | color(Color::White),
+            text(" • Type a message or ask a question to start coding.") | color(Color::GrayLight),
+            text(" • Use slash commands like /help, /model, /clear.") | color(Color::GrayLight),
+            text(" • Press Up/Down arrow keys to navigate input history.") | color(Color::GrayLight),
+            text(" • Press F5 or Escape to cancel active request.") | color(Color::GrayLight),
+        });
+
+        auto section_info = vbox({
+            text("System Info:") | bold | color(Color::White),
+            text(" • Theme: Monochrome Grayscale") | color(Color::GrayLight),
+            text(" • Status: Ready and listening") | color(Color::GrayLight),
+        });
+
+        auto card_content = vbox({
+            title,
+            title2,
+            text(""),
+            subtitle,
+            text(""),
+            separator() | color(Color::GrayDark),
+            text(""),
+            section_tips,
+            text(""),
+            separator() | color(Color::GrayDark),
+            text(""),
+            section_info,
+        }) | size(WIDTH, LESS_THAN, 60) | borderRounded | color(Color::GrayDark) | center;
+
+        children.push_back(card_content);
     }
 
     if (scroll_to_bottom_ && !children.empty()) {
