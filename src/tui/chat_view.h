@@ -22,6 +22,7 @@ public:
     void show_system_message(const std::string& msg);
     void clear();
     void set_on_scroll_to_bottom(std::function<void()> cb);
+    void set_scroll_to_bottom(bool scroll);
 
 private:
     struct DisplayMessage {

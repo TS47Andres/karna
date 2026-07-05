@@ -246,3 +246,9 @@ Element ChatView::render()
 
     return vbox(std::move(children)) | vscroll_indicator | yframe;
 }
+
+void ChatView::set_scroll_to_bottom(bool scroll)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    scroll_to_bottom_ = scroll;
+}

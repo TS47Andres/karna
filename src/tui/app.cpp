@@ -67,13 +67,24 @@ void TuiApp::run()
         });
     });
 
-    main_component_ = CatchEvent(renderer, [this](Event event) {
+    input_component->TakeFocus();
+
+    main_component_ = CatchEvent(renderer, [this, input_component](Event event) {
         if (event == Event::F5) {
             if (on_escape_) {
                 on_escape_();
             }
             return true;
         }
+        if (event == Event::PageUp || event == Event::Home) {
+            chat_view_.set_scroll_to_bottom(false);
+            return true;
+        }
+        if (event == Event::PageDown || event == Event::End) {
+            chat_view_.set_scroll_to_bottom(true);
+            return true;
+        }
+        input_component->TakeFocus();
         return false;
     });
 
