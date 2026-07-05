@@ -41,4 +41,5 @@ private:
     std::vector<Suggestion> suggestions_;
     int selected_index_{-1};
     bool show_suggestions_{false};
+    ftxui::Component input_component_;
 };

@@ -92,6 +92,7 @@ Component InputBar::build()
     };
 
     auto input = Input(input_content_.get(), option);
+    input_component_ = input;
 
     auto input_with_history = CatchEvent(input, [this](Event event) {
         if (event == Event::ArrowUp && !show_suggestions_ && !history_.empty()) {
@@ -282,6 +283,9 @@ void InputBar::clear()
 
 void InputBar::focus()
 {
+    if (input_component_) {
+        input_component_->TakeFocus();
+    }
 }
 
 void InputBar::set_command_registry(CommandRegistry* registry)

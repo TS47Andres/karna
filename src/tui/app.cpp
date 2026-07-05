@@ -67,14 +67,17 @@ void TuiApp::run()
         });
     });
 
-    input_component->TakeFocus();
+    input_bar_.focus();
 
-    main_component_ = CatchEvent(renderer, [this, input_component](Event event) {
+    main_component_ = CatchEvent(renderer, [this](Event event) {
         if (event == Event::F5) {
             if (on_escape_) {
                 on_escape_();
             }
             return true;
+        }
+        if (event == Event::Tab || event == Event::TabReverse) {
+            return true; // Consume Tab to prevent focus loss
         }
         if (event == Event::PageUp || event == Event::Home) {
             chat_view_.set_scroll_to_bottom(false);
@@ -84,7 +87,6 @@ void TuiApp::run()
             chat_view_.set_scroll_to_bottom(true);
             return true;
         }
-        input_component->TakeFocus();
         return false;
     });
 
