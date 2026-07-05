@@ -7,9 +7,15 @@
 #include "cli/run.h"
 #include "cli/config_cmd.h"
 #include "cli/mcp_cmd.h"
+#include <curl/curl.h>
 
 int main(int argc, char** argv)
 {
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    struct CurlCleanup {
+        ~CurlCleanup() { curl_global_cleanup(); }
+    } curl_cleanup;
+
     CLI::App app{"Karna - AI coding harness for the terminal"};
 
     app.require_subcommand(0, 1);

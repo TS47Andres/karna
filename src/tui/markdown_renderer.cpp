@@ -314,7 +314,7 @@ int MarkdownRenderer::leave_block_cb(MD_BLOCKTYPE type, void* detail, void* user
         case MD_BLOCK_TH:
         case MD_BLOCK_TD: {
             s.in_table_cell_ = false;
-            if (s.current_cell_text_.size() < s.table_col_widths.size()) {
+            if (s.table_row_cells.size() < s.table_col_widths.size()) {
                 unsigned w = static_cast<unsigned>(s.current_cell_text_.size());
                 if (w > s.table_col_widths[s.table_row_cells.size()])
                     s.table_col_widths[s.table_row_cells.size()] = w;
