@@ -1,4 +1,5 @@
 #include "tui/chat_view.h"
+#include <sstream>
 
 using namespace ftxui;
 
@@ -146,15 +147,38 @@ Element ChatView::render_message(const DisplayMessage& msg) const
     }
 
     if (msg.role == MessageRole::System) {
+        Elements elements;
+        std::stringstream ss(msg.content);
+        std::string line;
+        while (std::getline(ss, line)) {
+            if (line.empty()) {
+                elements.push_back(text(""));
+            } else {
+                elements.push_back(paragraph(line) | flex);
+            }
+        }
         return vbox({
-            paragraph(" " + msg.content) | color(Color::GrayDark) | dim | flex,
+            vbox(std::move(elements)) | color(Color::GrayDark) | dim,
             text(""),
         });
     }
 
     if (msg.role == MessageRole::Tool) {
+        Elements elements;
+        std::stringstream ss(msg.content);
+        std::string line;
+        bool is_first = true;
+        while (std::getline(ss, line)) {
+            std::string prefix_line = is_first ? (" ⚙ " + line) : ("   " + line);
+            is_first = false;
+            if (line.empty()) {
+                elements.push_back(text(""));
+            } else {
+                elements.push_back(paragraph(prefix_line) | flex);
+            }
+        }
         return vbox({
-            paragraph(" ⚙ " + msg.content) | color(Color::GrayLight) | dim | flex,
+            vbox(std::move(elements)) | color(Color::GrayLight) | dim,
             text(""),
         });
     }
