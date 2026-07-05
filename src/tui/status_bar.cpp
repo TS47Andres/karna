@@ -1,4 +1,6 @@
 #include "tui/status_bar.h"
+#include <chrono>
+#include <vector>
 
 using namespace ftxui;
 
@@ -31,10 +33,38 @@ void StatusBar::set_typing(bool typing)
     typing_ = typing;
 }
 
+bool StatusBar::is_typing() const
+{
+    return typing_;
+}
+
 Element StatusBar::render()
 {
     auto model_elem = text(" " + model_) | color(Color::White) | bold;
-    auto status_elem = text(" " + status_) | color(typing_ ? Color::White : Color::GrayDark) | flex;
+    
+    Element status_elem;
+    Color status_color = Color::GrayDark;
+    
+    if (status_ == "Thinking...") {
+        status_color = Color::White;
+    } else if (status_ == "Running tools...") {
+        status_color = Color::GrayLight;
+    } else if (status_ == "Ready") {
+        status_color = Color::GrayDark;
+    } else {
+        // e.g. Error or Aborted
+        status_color = Color::GrayLight;
+    }
+
+    if (typing_) {
+        using namespace std::chrono;
+        auto ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        const std::vector<std::string> spinner_chars = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
+        int idx = (ms / 80) % spinner_chars.size();
+        status_elem = text(" " + status_ + " " + spinner_chars[idx]) | color(status_color) | flex;
+    } else {
+        status_elem = text(" " + status_) | color(status_color) | flex;
+    }
 
     return hbox({
                model_elem,

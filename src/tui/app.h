@@ -10,6 +10,8 @@
 #include "core/command.h"
 #include <memory>
 #include <functional>
+#include <thread>
+#include <atomic>
 
 class TuiApp {
 public:
@@ -38,4 +40,6 @@ private:
     Sidebar sidebar_;
 
     std::function<void()> on_escape_;
+    std::thread refresh_thread_;
+    std::atomic<bool> run_refresh_thread_{true};
 };

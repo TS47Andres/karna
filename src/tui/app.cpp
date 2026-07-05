@@ -7,10 +7,26 @@ TuiApp::TuiApp()
     : screen_(ScreenInteractive::Fullscreen())
 {}
 
-TuiApp::~TuiApp() = default;
+TuiApp::~TuiApp()
+{
+    run_refresh_thread_ = false;
+    if (refresh_thread_.joinable()) {
+        refresh_thread_.join();
+    }
+}
 
 void TuiApp::run()
 {
+    run_refresh_thread_ = true;
+    refresh_thread_ = std::thread([this]() {
+        while (run_refresh_thread_.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(80));
+            if (status_bar_.is_typing()) {
+                request_refresh();
+            }
+        }
+    });
+
     std::cout << "\033[?25l";
     auto chat_component = chat_view_.build();
     auto input_component = input_bar_.build();

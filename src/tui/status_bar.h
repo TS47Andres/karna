@@ -12,6 +12,7 @@ public:
     void set_token_count(int prompt, int completion);
     void set_status(const std::string& status);
     void set_typing(bool typing);
+    bool is_typing() const;
 
 private:
     std::string model_;
