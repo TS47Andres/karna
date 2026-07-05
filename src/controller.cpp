@@ -240,8 +240,8 @@ void Controller::on_stream_done(Usage usage)
     // Extract tool calls into a local before any move operations
     auto tool_calls_to_process = std::move(stream_tool_calls_);
     stream_tool_calls_.clear();
-    for (auto& [idx, tc] : tool_calls_to_process) {
-        assistant_msg.tool_calls.push_back(std::move(tc));
+    for (const auto& [idx, tc] : tool_calls_to_process) {
+        assistant_msg.tool_calls.push_back(tc);
     }
     session_.add_message(assistant_msg);
 
@@ -296,14 +296,18 @@ void Controller::execute_tool_calls_and_continue()
             "Tool '" + tc.function_name + "' executed"
         );
 
-        // Add tool result to session
+        // Add tool result to session and TUI
         Message result_msg;
         result_msg.role = MessageRole::Tool;
         result_msg.content = result_content;
         if (!tc.id.empty()) {
             result_msg.tool_call_id = tc.id;
         }
+        if (!tc.function_name.empty()) {
+            result_msg.name = tc.function_name;
+        }
         session_.add_message(result_msg);
+        tui_->chat_view().add_message(result_msg);
     }
 
     // Clear accumulators for the next round

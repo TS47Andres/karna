@@ -79,8 +79,7 @@ if(KARNA_BUILD_TESTS)
   FetchContent_MakeAvailable(Catch2)
 endif()
 
-set(SOURCES
-  src/main.cpp
+set(LIB_SOURCES
   src/controller.cpp
   src/config/config.cpp
   src/core/session.cpp
@@ -128,12 +127,11 @@ set(SOURCES
   src/cli/mcp_cmd.cpp
 )
 
-add_executable(karna ${SOURCES})
+add_library(karna_lib STATIC ${LIB_SOURCES})
+target_include_directories(karna_lib PUBLIC src)
+target_include_directories(karna_lib PRIVATE ${md4c_SOURCE_DIR}/src)
 
-target_include_directories(karna PRIVATE src)
-target_include_directories(karna PRIVATE ${md4c_SOURCE_DIR}/src)
-
-target_link_libraries(karna PRIVATE
+target_link_libraries(karna_lib PUBLIC
   ftxui::screen
   ftxui::dom
   ftxui::component
@@ -146,8 +144,11 @@ target_link_libraries(karna PRIVATE
 )
 
 if(WIN32)
-  target_link_libraries(karna PRIVATE ws2_32 crypt32 bcrypt)
+  target_link_libraries(karna_lib PUBLIC ws2_32 crypt32 bcrypt)
 endif()
+
+add_executable(karna src/main.cpp)
+target_link_libraries(karna PRIVATE karna_lib)
 
 option(KARNA_BUILD_TESTS "Build tests" OFF)
 

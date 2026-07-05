@@ -28,9 +28,11 @@ TEST_CASE("WriteTool creates and writes file", "[tools]")
     auto result = tool.execute(json::parse(R"({"path": "test_tmp/write_test.txt", "content": "hello world"})"));
     REQUIRE(result.success);
 
-    std::ifstream f("test_tmp/write_test.txt");
-    std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-    REQUIRE(content == "hello world");
+    {
+        std::ifstream f("test_tmp/write_test.txt");
+        std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        REQUIRE(content == "hello world");
+    }
 
     fs::remove_all("test_tmp");
 }
@@ -47,9 +49,11 @@ TEST_CASE("EditTool replaces text", "[tools]")
     auto result = tool.execute(json::parse(R"({"path": "test_tmp/edit_test.txt", "old_string": "old", "new_string": "new"})"));
     REQUIRE(result.success);
 
-    std::ifstream f("test_tmp/edit_test.txt");
-    std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-    REQUIRE(content == "new content");
+    {
+        std::ifstream f("test_tmp/edit_test.txt");
+        std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        REQUIRE(content == "new content");
+    }
 
     fs::remove_all("test_tmp");
 }

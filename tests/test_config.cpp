@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include "config/config.h"
+#include <filesystem>
 
 TEST_CASE("Config loads defaults", "[config]")
 {

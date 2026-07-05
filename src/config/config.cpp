@@ -96,8 +96,10 @@ Config Config::load_from_file(const std::string& path)
 void Config::save(const std::string& path)
 {
     std::string save_path = path.empty() ? config_path() : path;
-
-    fs::create_directories(fs::path(save_path).parent_path());
+    fs::path parent = fs::path(save_path).parent_path();
+    if (!parent.empty()) {
+        fs::create_directories(parent);
+    }
 
     toml::table tbl;
     tbl.emplace("theme", theme);
