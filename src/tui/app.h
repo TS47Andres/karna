@@ -29,6 +29,7 @@ public:
     Sidebar& sidebar();
 
     void set_on_escape(std::function<void()> callback);
+    void set_on_callback_error(std::function<void(std::string)> callback);
 
     void request_refresh();
     void set_typing_state(bool typing);
@@ -46,6 +47,7 @@ private:
     Sidebar sidebar_;
 
     std::function<void()> on_escape_;
+    std::function<void(std::string)> on_callback_error_;
     std::thread refresh_thread_;
     std::atomic<bool> run_refresh_thread_{true};
     bool last_typing_state_{false};

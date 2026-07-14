@@ -71,6 +71,7 @@ private:
     void on_stream_done(Usage usage);
     void execute_tool_calls_and_continue(std::map<int, ToolCall> tool_calls);
     void finish_tool_execution(std::vector<ToolExecutionResult> results);
+    void handle_async_failure(const std::string& error) noexcept;
 
     void handle_escape_key();
     void reset_abort_pending();

@@ -3,6 +3,7 @@ set(TEST_SOURCES
   test_tools.cpp
   test_file_ops.cpp
   test_process.cpp
+  test_provider.cpp
 )
 
 add_executable(karna_tests ${TEST_SOURCES})

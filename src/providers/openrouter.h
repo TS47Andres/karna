@@ -43,7 +43,7 @@ private:
     mutable std::vector<ModelInfo> model_catalog_;
 
     struct WriteCtx;
-    static size_t write_callback(char* data, size_t size, size_t nmemb, void* userp);
+    static size_t write_callback(char* data, size_t size, size_t nmemb, void* userp) noexcept;
 
     json build_request_body(
         const std::vector<Message>& history,

@@ -20,12 +20,16 @@ TuiApp::~TuiApp()
 void TuiApp::run()
 {
     run_refresh_thread_ = true;
-    refresh_thread_ = std::thread([this]() {
-        while (run_refresh_thread_.load()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(80));
-            if (status_bar_.is_typing()) {
-                request_refresh();
+    refresh_thread_ = std::thread([this]() noexcept {
+        try {
+            while (run_refresh_thread_.load()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(80));
+                if (status_bar_.is_typing()) {
+                    request_refresh();
+                }
             }
+        } catch (...) {
+            run_refresh_thread_ = false;
         }
     });
 
@@ -96,7 +100,23 @@ void TuiApp::run()
             while (!callbacks.empty()) {
                 auto callback = std::move(callbacks.front());
                 callbacks.pop();
-                callback();
+                try {
+                    callback();
+                } catch (const std::exception& e) {
+                    try {
+                        if (on_callback_error_) {
+                            on_callback_error_(e.what());
+                        }
+                    } catch (...) {
+                    }
+                } catch (...) {
+                    try {
+                        if (on_callback_error_) {
+                            on_callback_error_("Unknown asynchronous callback failure");
+                        }
+                    } catch (...) {
+                    }
+                }
             }
             return false;
         }
@@ -141,6 +161,11 @@ Sidebar& TuiApp::sidebar()
 void TuiApp::set_on_escape(std::function<void()> callback)
 {
     on_escape_ = std::move(callback);
+}
+
+void TuiApp::set_on_callback_error(std::function<void(std::string)> callback)
+{
+    on_callback_error_ = std::move(callback);
 }
 
 void TuiApp::request_refresh()

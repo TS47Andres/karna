@@ -117,6 +117,9 @@ void Controller::run_chat(const std::string& initial_prompt)
     tui_->set_on_escape([this]() {
         handle_escape_key();
     });
+    tui_->set_on_callback_error([this](std::string error) {
+        handle_async_failure(error);
+    });
 
     if (!initial_prompt.empty()) {
         handle_user_input(initial_prompt);
@@ -208,14 +211,26 @@ void Controller::send_to_provider()
 
     auto* tui = tui_.get();
 
-    provider->send(
-        session_.history(),
-        tools_json_,
-        session_.model(),
-        [tui, this](Delta delta) { tui->post([this, delta = std::move(delta)]() { on_delta(delta); }); },
-        [tui, this](std::string error) { tui->post([this, error = std::move(error)]() { on_stream_error(error); }); },
-        [tui, this](Usage usage) { tui->post([this, usage]() { on_stream_done(usage); }); }
-    );
+    try {
+        provider->send(
+            session_.history(),
+            tools_json_,
+            session_.model(),
+            [tui, this](Delta delta) {
+                tui->post([this, delta = std::move(delta)]() { on_delta(delta); });
+            },
+            [tui, this](std::string error) {
+                tui->post([this, error = std::move(error)]() { on_stream_error(error); });
+            },
+            [tui, this](Usage usage) {
+                tui->post([this, usage]() { on_stream_done(usage); });
+            }
+        );
+    } catch (const std::exception& e) {
+        on_stream_error(std::string("Failed to start request: ") + e.what());
+    } catch (...) {
+        on_stream_error("Failed to start request");
+    }
 }
 
 void Controller::on_delta(const Delta& delta)
@@ -303,56 +318,97 @@ void Controller::execute_tool_calls_and_continue(std::map<int, ToolCall> tool_ca
     try {
         std::lock_guard<std::mutex> lock(tool_worker_mutex_);
         if (tool_worker_.joinable()) {
+            if (tool_worker_.get_id() == std::this_thread::get_id()) {
+                throw std::runtime_error("Tool worker attempted to replace itself");
+            }
             tool_worker_.join();
         }
 
-        tool_worker_ = std::thread([this, tool_calls = std::move(tool_calls)]() mutable {
-            std::vector<ToolExecutionResult> results;
-            results.reserve(tool_calls.size());
+        tool_worker_ = std::thread([this, tool_calls = std::move(tool_calls)]() mutable noexcept {
+            try {
+                std::vector<ToolExecutionResult> results;
+                results.reserve(tool_calls.size());
 
-            for (auto& [idx, tc] : tool_calls) {
-                (void)idx;
-                ToolExecutionResult execution;
-                execution.call = tc;
+                for (auto& [idx, tc] : tool_calls) {
+                    (void)idx;
+                    ToolExecutionResult execution;
+                    execution.call = tc;
 
-                if (tc.function_name.empty()) {
-                    execution.output = "Error: tool name was empty";
+                    if (tc.function_name.empty()) {
+                        execution.output = "tool name was empty";
+                        results.push_back(std::move(execution));
+                        continue;
+                    }
+
+                    Tool* tool = tool_registry_.find(tc.function_name);
+                    if (!tool) {
+                        Skill* skill = skill_registry_.find(tc.function_name);
+                        if (skill) {
+                            tool = skill;
+                        }
+                    }
+
+                    if (!tool) {
+                        execution.output = "Unknown tool '" + tc.function_name + "'";
+                    } else {
+                        try {
+                            json args = json::parse(tc.arguments);
+                            ToolResult result = tool->execute(args);
+                            execution.success = result.success;
+                            execution.output = std::move(result.output);
+                        } catch (const json::exception& e) {
+                            execution.output = std::string("Invalid tool arguments: ") + e.what();
+                        } catch (const std::exception& e) {
+                            execution.output = std::string("Tool failed: ") + e.what();
+                        } catch (...) {
+                            execution.output = "Tool failed with an unknown error";
+                        }
+                    }
                     results.push_back(std::move(execution));
-                    continue;
                 }
 
-                Tool* tool = tool_registry_.find(tc.function_name);
-                if (!tool) {
-                    Skill* skill = skill_registry_.find(tc.function_name);
-                    if (skill) {
-                        tool = skill;
-                    }
+                tui_->post([this, results = std::move(results)]() mutable {
+                    finish_tool_execution(std::move(results));
+                });
+            } catch (const std::exception& e) {
+                try {
+                    std::string error = std::string("Tool worker failed: ") + e.what();
+                    tui_->post([this, error = std::move(error)]() {
+                        handle_async_failure(error);
+                    });
+                } catch (...) {
                 }
-
-                if (!tool) {
-                    execution.output = "Error: Unknown tool '" + tc.function_name + "'";
-                } else {
-                    try {
-                        json args = json::parse(tc.arguments);
-                        ToolResult result = tool->execute(args);
-                        execution.success = result.success;
-                        execution.output = result.output;
-                    } catch (const std::exception& e) {
-                        execution.output = std::string("Error parsing arguments: ") + e.what();
-                    }
+            } catch (...) {
+                try {
+                    tui_->post([this]() {
+                        handle_async_failure("Tool worker failed with an unknown error");
+                    });
+                } catch (...) {
                 }
-                results.push_back(std::move(execution));
             }
-
-            tui_->post([this, results = std::move(results)]() mutable {
-                finish_tool_execution(std::move(results));
-            });
         });
     } catch (const std::exception& e) {
         tui_->chat_view().show_system_message("Tool execution failed: " + std::string(e.what()));
         tui_->status_bar().set_status("Error");
         tui_->set_typing_state(false);
         processing_.store(false);
+    }
+}
+
+void Controller::handle_async_failure(const std::string& error) noexcept
+{
+    processing_.store(false);
+    abort_pending_.store(false);
+    try {
+        if (auto* provider = session_.provider()) {
+            provider->abort();
+        }
+        tui_->set_typing_state(false);
+        tui_->status_bar().set_status("Error");
+        tui_->chat_view().show_system_message("Internal error: " + error);
+        tui_->request_refresh();
+    } catch (...) {
+        // Keep the TUI alive even if rendering the diagnostic itself fails.
     }
 }
 

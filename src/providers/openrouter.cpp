@@ -10,6 +10,91 @@
 #include <iostream>
 #include <map>
 #include <filesystem>
+#include <memory>
+#include <stdexcept>
+
+namespace {
+
+using DeltaCallback = std::function<void(Delta)>;
+using ErrorCallback = std::function<void(std::string)>;
+using DoneCallback = std::function<void(Usage)>;
+
+void notify_delta(const DeltaCallback& callback, const Delta& delta) noexcept
+{
+    try {
+        if (callback) {
+            callback(delta);
+        }
+    } catch (...) {
+        // No C++ exception may cross libcurl's C callback boundary.
+    }
+}
+
+void notify_error(
+    const ErrorCallback& callback,
+    const char* prefix,
+    const char* detail = nullptr
+) noexcept
+{
+    try {
+        if (!callback) {
+            return;
+        }
+        std::string message = prefix ? prefix : "Provider request failed";
+        if (detail && *detail) {
+            message += detail;
+        }
+        callback(std::move(message));
+    } catch (...) {
+        // Error reporting itself must never terminate a worker thread.
+    }
+}
+
+void notify_done(const DoneCallback& callback, const Usage& usage) noexcept
+{
+    try {
+        if (callback) {
+            callback(usage);
+        }
+    } catch (...) {
+        // The UI owns callback errors; never let one escape the worker.
+    }
+}
+
+struct CurlHandleDeleter {
+    void operator()(CURL* handle) const noexcept
+    {
+        if (handle) {
+            curl_easy_cleanup(handle);
+        }
+    }
+};
+
+class CurlHeaders {
+public:
+    ~CurlHeaders()
+    {
+        if (headers_) {
+            curl_slist_free_all(headers_);
+        }
+    }
+
+    void append(const std::string& value)
+    {
+        auto* updated = curl_slist_append(headers_, value.c_str());
+        if (!updated) {
+            throw std::runtime_error("Failed to allocate HTTP headers");
+        }
+        headers_ = updated;
+    }
+
+    curl_slist* get() const noexcept { return headers_; }
+
+private:
+    curl_slist* headers_{nullptr};
+};
+
+} // namespace
 
 struct OpenRouterProvider::WriteCtx {
     std::string buffer;
@@ -189,129 +274,144 @@ json OpenRouterProvider::build_request_body(
     return body;
 }
 
-size_t OpenRouterProvider::write_callback(char* data, size_t size, size_t nmemb, void* userp)
+size_t OpenRouterProvider::write_callback(char* data, size_t size, size_t nmemb, void* userp) noexcept
 {
-    size_t total = size * nmemb;
     auto* ctx = static_cast<WriteCtx*>(userp);
-
-    if (ctx->abort_flag && ctx->abort_flag->load()) {
+    if (!ctx) {
         return 0;
     }
 
-    ctx->buffer.append(data, total);
+    try {
+        const size_t total = size * nmemb;
 
-    size_t pos = 0;
-    while (true) {
-        size_t newline = ctx->buffer.find('\n', pos);
-        if (newline == std::string::npos) {
-            break;
-        }
-        std::string line = ctx->buffer.substr(pos, newline - pos);
-        pos = newline + 1;
-        if (!line.empty() && line.back() == '\r') {
-            line.pop_back();
+        if (ctx->abort_flag && ctx->abort_flag->load()) {
+            return 0;
         }
 
-        if (line.empty()) {
-            continue;
-        }
+        ctx->buffer.append(data, total);
 
-        if (line.rfind("data: ", 0) == 0) {
-            std::string payload = line.substr(6);
-            if (payload == "[DONE]") {
+        size_t pos = 0;
+        while (true) {
+            size_t newline = ctx->buffer.find('\n', pos);
+            if (newline == std::string::npos) {
                 break;
             }
+            std::string line = ctx->buffer.substr(pos, newline - pos);
+            pos = newline + 1;
+            if (!line.empty() && line.back() == '\r') {
+                line.pop_back();
+            }
 
-            try {
-                auto j = json::parse(payload);
-                if (j.contains("error")) {
-                    std::string err = j["error"].value("message", "unknown error");
-                    if (ctx->on_error && *ctx->on_error) {
-                        (*ctx->on_error)(err);
-                    }
-                    continue;
+            if (line.empty()) {
+                continue;
+            }
+
+            if (line.rfind("data: ", 0) == 0) {
+                std::string payload = line.substr(6);
+                if (payload == "[DONE]") {
+                    break;
                 }
 
-                Delta delta;
-                bool has_content = false;
-
-                if (j.contains("usage") && !j["usage"].is_null()) {
-                    ctx->final_usage.prompt_tokens = j["usage"].value("prompt_tokens", 0);
-                    ctx->final_usage.completion_tokens = j["usage"].value("completion_tokens", 0);
-                    ctx->final_usage.total_tokens = j["usage"].value("total_tokens", 0);
-                }
-
-                if (j.contains("choices") && !j["choices"].empty()) {
-                    const auto& choice = j["choices"][0];
-
-                    if (choice.contains("finish_reason") && !choice["finish_reason"].is_null()) {
-                        std::string fr = choice["finish_reason"];
-                        if (fr == "stop") {
-                            delta.finish_reason = FinishReason::Stop;
-                        } else if (fr == "tool_calls") {
-                            delta.finish_reason = FinishReason::ToolCalls;
-                        } else if (fr == "length") {
-                            delta.finish_reason = FinishReason::Length;
-                        } else {
-                            delta.finish_reason = FinishReason::Unknown;
+                try {
+                    auto j = json::parse(payload);
+                    if (j.contains("error")) {
+                        std::string err = j["error"].value("message", "unknown error");
+                        if (ctx->on_error) {
+                            notify_error(*ctx->on_error, "", err.c_str());
                         }
-                        has_content = true;
+                        continue;
                     }
 
-                    if (choice.contains("delta")) {
-                        const auto& d = choice["delta"];
+                    Delta delta;
+                    bool has_content = false;
 
-                        if (d.contains("content") && !d["content"].is_null()) {
-                            delta.content = d["content"].get<std::string>();
+                    if (j.contains("usage") && !j["usage"].is_null()) {
+                        ctx->final_usage.prompt_tokens = j["usage"].value("prompt_tokens", 0);
+                        ctx->final_usage.completion_tokens = j["usage"].value("completion_tokens", 0);
+                        ctx->final_usage.total_tokens = j["usage"].value("total_tokens", 0);
+                    }
+
+                    if (j.contains("choices") && !j["choices"].empty()) {
+                        const auto& choice = j["choices"][0];
+
+                        if (choice.contains("finish_reason") && !choice["finish_reason"].is_null()) {
+                            std::string fr = choice["finish_reason"];
+                            if (fr == "stop") {
+                                delta.finish_reason = FinishReason::Stop;
+                            } else if (fr == "tool_calls") {
+                                delta.finish_reason = FinishReason::ToolCalls;
+                            } else if (fr == "length") {
+                                delta.finish_reason = FinishReason::Length;
+                            } else {
+                                delta.finish_reason = FinishReason::Unknown;
+                            }
                             has_content = true;
                         }
 
-                        if (d.contains("tool_calls") && !d["tool_calls"].empty()) {
-                            const auto& tcs = d["tool_calls"];
-                            for (const auto& tc : tcs) {
-                                int idx = tc.value("index", 0);
-                                auto& acc = ctx->accumulated_calls[idx];
+                        if (choice.contains("delta")) {
+                            const auto& d = choice["delta"];
 
-                                if (tc.contains("id") && !tc["id"].is_null()) {
-                                    acc.id = tc["id"].get<std::string>();
-                                }
-                                if (tc.contains("type") && !tc["type"].is_null()) {
-                                    acc.type = tc["type"].get<std::string>();
-                                }
-                                if (tc.contains("function")) {
-                                    const auto& fn = tc["function"];
-                                    if (fn.contains("name") && !fn["name"].is_null()) {
-                                        acc.function_name = fn["name"].get<std::string>();
-                                    }
-                                    if (fn.contains("arguments") && !fn["arguments"].is_null()) {
-                                        acc.arguments += fn["arguments"].get<std::string>();
-                                    }
-                                }
-                                acc.index = idx;
+                            if (d.contains("content") && !d["content"].is_null()) {
+                                delta.content = d["content"].get<std::string>();
+                                has_content = true;
+                            }
 
-                                if (!acc.function_name.empty() || (tc.contains("function") && tc["function"].contains("name"))) {
-                                    ToolCall out = acc;
-                                    delta.tool_call = out;
-                                    has_content = true;
+                            if (d.contains("tool_calls") && !d["tool_calls"].empty()) {
+                                const auto& tcs = d["tool_calls"];
+                                for (const auto& tc : tcs) {
+                                    int idx = tc.value("index", 0);
+                                    auto& acc = ctx->accumulated_calls[idx];
+
+                                    if (tc.contains("id") && !tc["id"].is_null()) {
+                                        acc.id = tc["id"].get<std::string>();
+                                    }
+                                    if (tc.contains("type") && !tc["type"].is_null()) {
+                                        acc.type = tc["type"].get<std::string>();
+                                    }
+                                    if (tc.contains("function")) {
+                                        const auto& fn = tc["function"];
+                                        if (fn.contains("name") && !fn["name"].is_null()) {
+                                            acc.function_name = fn["name"].get<std::string>();
+                                        }
+                                        if (fn.contains("arguments") && !fn["arguments"].is_null()) {
+                                            acc.arguments += fn["arguments"].get<std::string>();
+                                        }
+                                    }
+                                    acc.index = idx;
+
+                                    if (!acc.function_name.empty() || (tc.contains("function") && tc["function"].contains("name"))) {
+                                        ToolCall out = acc;
+                                        delta.tool_call = out;
+                                        has_content = true;
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                if (has_content && ctx->on_delta && *ctx->on_delta) {
-                    (*ctx->on_delta)(delta);
-                }
-            } catch (const std::exception& e) {
-                if (ctx->on_error && *ctx->on_error) {
-                    (*ctx->on_error)(std::string("SSE parse error: ") + e.what());
+                    if (has_content && ctx->on_delta) {
+                        notify_delta(*ctx->on_delta, delta);
+                    }
+                } catch (const std::exception& e) {
+                    if (ctx->on_error) {
+                        notify_error(*ctx->on_error, "SSE parse error: ", e.what());
+                    }
                 }
             }
         }
-    }
 
-    ctx->buffer.erase(0, pos);
-    return total;
+        ctx->buffer.erase(0, pos);
+        return total;
+    } catch (const std::exception& e) {
+        if (ctx->on_error) {
+            notify_error(*ctx->on_error, "Stream callback failed: ", e.what());
+        }
+    } catch (...) {
+        if (ctx->on_error) {
+            notify_error(*ctx->on_error, "Stream callback failed");
+        }
+    }
+    return 0;
 }
 
 void OpenRouterProvider::send(
@@ -322,60 +422,85 @@ void OpenRouterProvider::send(
     std::function<void(std::string)> on_error,
     std::function<void(Usage)> on_done)
 {
-    abort_.store(false);
+    ErrorCallback start_error;
+    try {
+        start_error = on_error;
+        abort_.store(false);
 
-    std::lock_guard<std::mutex> lock(worker_mutex_);
-    if (worker_.joinable() && worker_.get_id() != std::this_thread::get_id()) {
-        worker_.join();
-    }
-
-    worker_ = std::thread([this, history, tools, request_model = model, on_delta = std::move(on_delta), on_error = std::move(on_error), on_done = std::move(on_done)]() {
-        CURL* curl = curl_easy_init();
-        if (!curl) {
-            if (on_error) on_error("Failed to initialize curl");
-            return;
-        }
-        configure_curl_ssl(curl);
-
-        json body = build_request_body(history, tools, request_model);
-        std::string body_str = body.dump();
-
-        struct curl_slist* headers = nullptr;
-        headers = curl_slist_append(headers, "Content-Type: application/json");
-        std::string auth = "Authorization: Bearer " + config_.api_key;
-        headers = curl_slist_append(headers, auth.c_str());
-        headers = curl_slist_append(headers, "Accept: text/event-stream");
-
-        WriteCtx ctx;
-        ctx.abort_flag = &abort_;
-        ctx.on_delta = &on_delta;
-        ctx.on_error = &on_error;
-
-        std::string url = config_.base_url + "/chat/completions";
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body_str.c_str());
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(body_str.size()));
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &ctx);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 300L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "karna/0.1.0");
-
-        CURLcode res = curl_easy_perform(curl);
-        if (res != CURLE_OK) {
-            std::string err = curl_easy_strerror(res);
-            if (abort_.load()) {
-                err = "Request aborted";
+        std::lock_guard<std::mutex> lock(worker_mutex_);
+        if (worker_.joinable()) {
+            if (worker_.get_id() == std::this_thread::get_id()) {
+                notify_error(on_error, "Provider request could not be restarted from its own worker thread");
+                return;
             }
-            if (on_error) on_error(std::string("Request failed: ") + err);
-        } else if (on_done) {
-            on_done(ctx.final_usage);
+            worker_.join();
         }
 
-        curl_slist_free_all(headers);
-        curl_easy_cleanup(curl);
-    });
+        auto task = [this, history, tools, request_model = model,
+                     on_delta = std::move(on_delta), on_error = std::move(on_error),
+                     on_done = std::move(on_done)]() noexcept {
+            try {
+                std::unique_ptr<CURL, CurlHandleDeleter> curl(curl_easy_init());
+                if (!curl) {
+                    notify_error(on_error, "Failed to initialize curl");
+                    return;
+                }
+                configure_curl_ssl(curl.get());
+
+                json body = build_request_body(history, tools, request_model);
+                // Tool output can contain arbitrary bytes (terminal encodings,
+                // binary files, and filenames). Replacing invalid UTF-8 keeps a
+                // valid request and prevents nlohmann::json from throwing here.
+                std::string body_str = body.dump(
+                    -1, ' ', false, json::error_handler_t::replace);
+
+                CurlHeaders headers;
+                headers.append("Content-Type: application/json");
+                headers.append("Authorization: Bearer " + config_.api_key);
+                headers.append("Accept: text/event-stream");
+
+                WriteCtx ctx;
+                ctx.abort_flag = &abort_;
+                ctx.on_delta = &on_delta;
+                ctx.on_error = &on_error;
+
+                std::string url = config_.base_url + "/chat/completions";
+                curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
+                curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, headers.get());
+                curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDS, body_str.c_str());
+                curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDSIZE, static_cast<long>(body_str.size()));
+                curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, write_callback);
+                curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &ctx);
+                curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 300L);
+                curl_easy_setopt(curl.get(), CURLOPT_SSL_VERIFYPEER, 1L);
+                curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, "karna/0.1.0");
+
+                const CURLcode result = curl_easy_perform(curl.get());
+                if (result != CURLE_OK) {
+                    if (abort_.load()) {
+                        notify_error(on_error, "Request aborted");
+                    } else {
+                        notify_error(on_error, "Request failed: ", curl_easy_strerror(result));
+                    }
+                } else {
+                    notify_done(on_done, ctx.final_usage);
+                }
+            } catch (const std::exception& e) {
+                notify_error(on_error, "Provider worker failed: ", e.what());
+            } catch (...) {
+                notify_error(on_error, "Provider worker failed with an unknown error");
+            }
+        };
+
+        // worker_ is guaranteed non-joinable here. Constructing a temporary
+        // first means a thread creation failure cannot assign over live state.
+        std::thread next_worker(std::move(task));
+        worker_ = std::move(next_worker);
+    } catch (const std::exception& e) {
+        notify_error(start_error, "Failed to start provider request: ", e.what());
+    } catch (...) {
+        notify_error(start_error, "Failed to start provider request");
+    }
 }
 
 int OpenRouterProvider::count_tokens(const std::string& text) const
