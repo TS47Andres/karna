@@ -9,7 +9,8 @@ if(MINGW)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static -static-libgcc -static-libstdc++")
 endif()
 
-find_package(CURL REQUIRED)
+set(CURL_NO_CURL_CMAKE TRUE)
+find_package(CURL REQUIRED MODULE)
 
 include(FetchContent)
 
