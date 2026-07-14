@@ -76,7 +76,7 @@ Element StatusBar::render()
                model_elem,
                separator() | color(Color::GrayDark) | size(WIDTH, EQUAL, 1),
                status_elem,
-               text(" F5/Esc Abort/Exit ") | color(Color::GrayDark),
+               text(" Esc twice Abort ") | color(Color::GrayDark),
            }) |
            size(HEIGHT, EQUAL, 1);
 }

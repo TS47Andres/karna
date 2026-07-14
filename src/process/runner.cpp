@@ -16,13 +16,21 @@
 #include <memory>
 #include <algorithm>
 
+namespace {
+constexpr int kDefaultTimeoutMs = 60 * 1000;
+}
+
 ProcessResult ProcessRunner::run(
     const std::string& command,
     const std::string& working_dir,
     int timeout_ms,
-    std::function<void(const std::string&)> on_output)
+    std::function<void(const std::string&)> on_output,
+    std::function<bool()> should_cancel)
 {
     ProcessResult result;
+    if (timeout_ms <= 0) {
+        timeout_ms = kDefaultTimeoutMs;
+    }
 
 #ifdef _WIN32
     std::string cmd = "cmd.exe /c " + command;
@@ -67,6 +75,20 @@ ProcessResult ProcessRunner::run(
         return result;
     }
 
+    // Keep the entire command tree together so cancelling a command also
+    // terminates npm/node and other descendants, rather than only cmd.exe.
+    HANDLE hJob = CreateJobObjectA(nullptr, nullptr);
+    if (hJob) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if (!SetInformationJobObject(hJob, JobObjectExtendedLimitInformation,
+                                     &limits, sizeof(limits)) ||
+            !AssignProcessToJobObject(hJob, pi.hProcess)) {
+            CloseHandle(hJob);
+            hJob = nullptr;
+        }
+    }
+
     CloseHandle(hStdoutWrite);
     CloseHandle(hStderrWrite);
 
@@ -98,10 +120,26 @@ ProcessResult ProcessRunner::run(
         if (wait_result == WAIT_OBJECT_0) {
             process_done = true;
         } else {
+            if (should_cancel && should_cancel()) {
+                if (hJob) {
+                    TerminateJobObject(hJob, 1);
+                } else {
+                    TerminateProcess(pi.hProcess, 1);
+                }
+                result.cancelled = true;
+                WaitForSingleObject(pi.hProcess, INFINITE);
+                process_done = true;
+                continue;
+            }
+
             const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - start_time).count();
-            if (timeout_ms >= 0 && elapsed >= timeout_ms) {
-                TerminateProcess(pi.hProcess, 1);
+            if (elapsed >= timeout_ms) {
+                if (hJob) {
+                    TerminateJobObject(hJob, 1);
+                } else {
+                    TerminateProcess(pi.hProcess, 1);
+                }
                 result.timed_out = true;
                 WaitForSingleObject(pi.hProcess, INFINITE);
                 process_done = true;
@@ -120,6 +158,7 @@ ProcessResult ProcessRunner::run(
 
     CloseHandle(hStdoutRead);
     CloseHandle(hStderrRead);
+    if (hJob) CloseHandle(hJob);
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
 
@@ -146,6 +185,10 @@ ProcessResult ProcessRunner::run(
         close(stdout_pipe[1]);
         close(stderr_pipe[1]);
 
+        // Put the shell and its descendants in their own process group so
+        // cancellation can stop the complete command tree.
+        setpgid(0, 0);
+
         if (!working_dir.empty()) {
             chdir(working_dir.c_str());
         }
@@ -160,7 +203,7 @@ ProcessResult ProcessRunner::run(
     auto start_time = std::chrono::steady_clock::now();
     bool done = false;
 
-    while (!done && !result.timed_out) {
+    while (!done && !result.timed_out && !result.cancelled) {
         fd_set read_fds;
         FD_ZERO(&read_fds);
         FD_SET(stdout_pipe[0], &read_fds);
@@ -197,6 +240,20 @@ ProcessResult ProcessRunner::run(
             }
         }
 
+        if (should_cancel && should_cancel()) {
+            kill(-pid, SIGTERM);
+            result.cancelled = true;
+            int status = 0;
+            if (waitpid(pid, &status, 0) == pid) {
+                if (WIFEXITED(status)) {
+                    result.exit_code = WEXITSTATUS(status);
+                } else if (WIFSIGNALED(status)) {
+                    result.exit_code = -WTERMSIG(status);
+                }
+            }
+            continue;
+        }
+
         int status;
         pid_t wpid = waitpid(pid, &status, WNOHANG);
         if (wpid == pid) {
@@ -209,10 +266,15 @@ ProcessResult ProcessRunner::run(
         }
 
         auto elapsed = std::chrono::steady_clock::now() - start_time;
-        if (timeout_ms >= 0 &&
-            std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() >= timeout_ms) {
-            kill(pid, SIGTERM);
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() >= timeout_ms) {
+            kill(-pid, SIGTERM);
             result.timed_out = true;
+            waitpid(pid, &status, 0);
+            if (WIFEXITED(status)) {
+                result.exit_code = WEXITSTATUS(status);
+            } else if (WIFSIGNALED(status)) {
+                result.exit_code = -WTERMSIG(status);
+            }
         }
     }
 

@@ -9,6 +9,7 @@
 
 using json = nlohmann::json;
 using ToolOutputCallback = std::function<void(const std::string&)>;
+using ToolCancelCallback = std::function<bool()>;
 
 struct ToolResult {
     bool success;
@@ -32,8 +33,10 @@ public:
     virtual std::string description() const = 0;
     virtual json parameters() const = 0;
     virtual ToolResult execute(const json& params) = 0;
-    virtual ToolResult execute_stream(const json& params, ToolOutputCallback on_output) {
+    virtual ToolResult execute_stream(const json& params, ToolOutputCallback on_output,
+                                      ToolCancelCallback should_cancel = {}) {
         (void)on_output;
+        (void)should_cancel;
         return execute(params);
     }
 };

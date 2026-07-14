@@ -13,6 +13,10 @@
 #include <algorithm>
 #include <thread>
 
+namespace {
+constexpr int kDefaultBashTimeoutMs = 60 * 1000;
+}
+
 Controller::Controller()
     : config_(Config::load())
     , session_(config_)
@@ -182,6 +186,7 @@ void Controller::handle_normal_message(const std::string& text)
 {
     processing_.store(true);
     abort_pending_.store(false);
+    tool_cancel_requested_.store(false);
 
     Message user_msg;
     user_msg.role = MessageRole::User;
@@ -235,6 +240,8 @@ void Controller::send_to_provider()
 
 void Controller::on_delta(const Delta& delta)
 {
+    if (!processing_.load() || tool_cancel_requested_.load()) return;
+
     if (delta.content) {
         stream_content_ += *delta.content;
     }
@@ -256,19 +263,23 @@ void Controller::on_delta(const Delta& delta)
 
 void Controller::on_stream_error(const std::string& error)
 {
-    if (abort_pending_.load() || abort_pending_.load()) {
+    const bool was_aborted = abort_pending_.load() || tool_cancel_requested_.load();
+    if (was_aborted) {
         tui_->chat_view().show_system_message("Response aborted.");
     } else {
         tui_->chat_view().show_system_message("Error: " + error);
     }
-    tui_->status_bar().set_status(abort_pending_.load() ? "Aborted" : "Error");
+    tui_->status_bar().set_status(was_aborted ? "Aborted" : "Error");
     tui_->set_typing_state(false);
     processing_.store(false);
     abort_pending_.store(false);
+    tool_cancel_requested_.store(false);
 }
 
 void Controller::on_stream_done(Usage usage)
 {
+    if (!processing_.load() || tool_cancel_requested_.load()) return;
+
     session_.add_usage(usage);
     tui_->status_bar().set_token_count(
         session_.total_usage().prompt_tokens,
@@ -334,6 +345,12 @@ void Controller::execute_tool_calls_and_continue(std::map<int, ToolCall> tool_ca
                     ToolExecutionResult execution;
                     execution.call = tc;
 
+                    if (tool_cancel_requested_.load()) {
+                        execution.output = "Tool cancelled by user";
+                        results.push_back(std::move(execution));
+                        continue;
+                    }
+
                     if (tc.function_name.empty()) {
                         execution.output = "tool name was empty";
                         results.push_back(std::move(execution));
@@ -360,10 +377,13 @@ void Controller::execute_tool_calls_and_continue(std::map<int, ToolCall> tool_ca
                                 execution.display_key = tc.id.empty()
                                     ? "bash-" + std::to_string(idx)
                                     : tc.id;
-                                const int timeout = args.value("timeout", -1);
-                                const std::string timeout_label = args.contains("timeout")
-                                    ? std::to_string(timeout) + "ms"
-                                    : "Infinity";
+                                int timeout = args.value("timeout", kDefaultBashTimeoutMs);
+                                if (timeout <= 0) timeout = kDefaultBashTimeoutMs;
+                                const bool explicit_timeout = args.contains("timeout") &&
+                                    args["timeout"].is_number_integer() &&
+                                    args["timeout"].get<int>() > 0;
+                                const std::string timeout_label = std::to_string(timeout) +
+                                    "ms" + (explicit_timeout ? "" : " (default)");
                                 const std::string key = execution.display_key;
                                 const std::string command = args.value("command", "");
                                 tui_->post([this, key, command, timeout_label]() {
@@ -377,7 +397,11 @@ void Controller::execute_tool_calls_and_continue(std::map<int, ToolCall> tool_ca
                                 };
                             }
 
-                            ToolResult result = tool->execute_stream(args, std::move(on_output));
+                            ToolCancelCallback should_cancel = [this]() {
+                                return tool_cancel_requested_.load();
+                            };
+                            ToolResult result = tool->execute_stream(
+                                args, std::move(on_output), std::move(should_cancel));
                             execution.success = result.success;
                             execution.output = std::move(result.output);
                             execution.data = std::move(result.data);
@@ -424,6 +448,7 @@ void Controller::handle_async_failure(const std::string& error) noexcept
 {
     processing_.store(false);
     abort_pending_.store(false);
+    tool_cancel_requested_.store(false);
     try {
         if (auto* provider = session_.provider()) {
             provider->abort();
@@ -439,6 +464,8 @@ void Controller::handle_async_failure(const std::string& error) noexcept
 
 void Controller::finish_tool_execution(std::vector<ToolExecutionResult> results)
 {
+    const bool cancelled = tool_cancel_requested_.load();
+
     for (const auto& execution : results) {
         const auto& tc = execution.call;
         Message result_msg;
@@ -480,7 +507,8 @@ void Controller::finish_tool_execution(std::vector<ToolExecutionResult> results)
                     execution.display_key, execution.output, execution.success);
             } else {
                 tui_->chat_view().show_system_message(
-                    "bash : command : Infinity : " + execution.output);
+                    "bash : command : " + std::to_string(kDefaultBashTimeoutMs) +
+                    "ms : " + execution.output);
             }
         } else if ((tc.function_name == "write" || tc.function_name == "edit") &&
                    execution.success && execution.data.is_object() &&
@@ -501,6 +529,16 @@ void Controller::finish_tool_execution(std::vector<ToolExecutionResult> results)
     stream_tool_calls_.clear();
     stream_finish_reason_ = FinishReason::Unknown;
 
+    if (cancelled) {
+        tui_->status_bar().set_status("Aborted");
+        tui_->set_typing_state(false);
+        processing_.store(false);
+        abort_pending_.store(false);
+        tool_cancel_requested_.store(false);
+        tui_->request_refresh();
+        return;
+    }
+
     tui_->status_bar().set_status("Thinking...");
     tui_->set_typing_state(true);
     send_to_provider();
@@ -515,6 +553,7 @@ void Controller::handle_escape_key()
 
     if (abort_pending_.load()) {
         // Second press: actually abort
+        tool_cancel_requested_.store(true);
         auto* provider = session_.provider();
         if (provider) {
             provider->abort();
@@ -527,7 +566,7 @@ void Controller::handle_escape_key()
         // First press: show pending
         abort_pending_.store(true);
         last_abort_press_ = std::chrono::steady_clock::now();
-        tui_->status_bar().set_status("Press F5/Esc again to abort");
+        tui_->status_bar().set_status("Press Esc again to abort");
         tui_->request_refresh();
     }
 }
@@ -536,6 +575,7 @@ void Controller::reset_abort_pending()
 {
     if (abort_pending_.load()) {
         abort_pending_.store(false);
+        tool_cancel_requested_.store(false);
         if (processing_.load()) {
             tui_->status_bar().set_status("Thinking...");
             tui_->request_refresh();

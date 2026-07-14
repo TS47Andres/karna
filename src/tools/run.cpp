@@ -1,6 +1,10 @@
 #include "tools/run.h"
 #include "process/runner.h"
 
+namespace {
+constexpr int kDefaultTimeoutMs = 60 * 1000;
+}
+
 std::string RunTool::name() const { return "bash"; }
 
 std::string RunTool::description() const
@@ -19,7 +23,9 @@ json RunTool::parameters() const
             }},
             {"timeout", {
                 {"type", "integer"},
-                {"description", "Optional timeout in milliseconds"}
+                {"description", "Optional timeout in milliseconds (default: 60000)"},
+                {"minimum", 1},
+                {"default", kDefaultTimeoutMs}
             }},
             {"workdir", {
                 {"type", "string"},
@@ -33,16 +39,21 @@ json RunTool::parameters() const
 
 ToolResult RunTool::execute(const json& params)
 {
-    return execute_stream(params, {});
+    return execute_stream(params, {}, {});
 }
 
-ToolResult RunTool::execute_stream(const json& params, ToolOutputCallback on_output)
+ToolResult RunTool::execute_stream(const json& params, ToolOutputCallback on_output,
+                                   ToolCancelCallback should_cancel)
 {
     std::string command = params["command"].get<std::string>();
-    int timeout = params.value("timeout", -1);
+    int timeout = params.value("timeout", kDefaultTimeoutMs);
+    if (timeout <= 0) {
+        timeout = kDefaultTimeoutMs;
+    }
     std::string workdir = params.value("workdir", "");
 
-    ProcessResult result = ProcessRunner::run(command, workdir, timeout, std::move(on_output));
+    ProcessResult result = ProcessRunner::run(
+        command, workdir, timeout, std::move(on_output), std::move(should_cancel));
 
     std::string output;
     if (!result.stdout_str.empty()) {
@@ -61,10 +72,15 @@ ToolResult RunTool::execute_stream(const json& params, ToolOutputCallback on_out
         {"timeout_set", params.contains("timeout")},
         {"exit_code", result.exit_code},
         {"timed_out", result.timed_out},
+        {"cancelled", result.cancelled},
     };
 
     if (result.timed_out) {
         return {false, "Command timed out after " + std::to_string(timeout) + "ms\n" + output, std::move(data)};
+    }
+
+    if (result.cancelled) {
+        return {false, "Command cancelled by user\n" + output, std::move(data)};
     }
 
     if (result.exit_code == 0) {
