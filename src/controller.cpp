@@ -18,7 +18,13 @@ Controller::Controller()
     , stream_finish_reason_(FinishReason::Unknown)
 {}
 
-Controller::~Controller() = default;
+Controller::~Controller()
+{
+    if (session_.provider()) {
+        session_.provider()->abort();
+        session_.set_provider(nullptr);
+    }
+}
 
 void Controller::setup_tools()
 {
@@ -44,6 +50,7 @@ void Controller::setup_commands()
 void Controller::setup_provider()
 {
     auto provider = std::make_unique<OpenRouterProvider>(config_.openrouter);
+    provider->set_model(session_.model());
     session_.set_provider(std::move(provider));
 }
 
@@ -85,6 +92,7 @@ void Controller::run_chat(const std::string& initial_prompt)
     tui_->sidebar().set_project_context(project_ctx);
     tui_->sidebar().set_model(session_.model());
     tui_->sidebar().set_token_count(0, 0);
+    tui_->sidebar().set_context(session_.context_usage(), session_.provider()->context_window());
 
     tui_->status_bar().set_model(session_.model());
     tui_->status_bar().set_status("Ready");
@@ -137,6 +145,10 @@ void Controller::handle_slash_command(const std::string& cmd, const std::string&
         command->execute(args, ctx);
         tui_->status_bar().set_model(session_.model());
         tui_->sidebar().set_model(session_.model());
+        tui_->sidebar().set_context(
+            session_.context_usage(),
+            session_.provider() ? session_.provider()->context_window() : 0
+        );
         tui_->request_refresh();
     } else {
         tui_->chat_view().show_system_message("Unknown command: /" + cmd + ". Type /help for available commands.");
@@ -180,9 +192,9 @@ void Controller::send_to_provider()
     provider->send(
         session_.history(),
         tools_json_,
-        [tui, this](Delta delta) { this->on_delta(delta); },
-        [tui, this](std::string error) { this->on_stream_error(error); },
-        [tui, this](Usage usage) { this->on_stream_done(usage); }
+        [tui, this](Delta delta) { tui->post([this, delta = std::move(delta)]() { on_delta(delta); }); },
+        [tui, this](std::string error) { tui->post([this, error = std::move(error)]() { on_stream_error(error); }); },
+        [tui, this](Usage usage) { tui->post([this, usage]() { on_stream_done(usage); }); }
     );
 }
 
@@ -231,6 +243,12 @@ void Controller::on_stream_done(Usage usage)
         session_.total_usage().prompt_tokens,
         session_.total_usage().completion_tokens
     );
+    session_.set_context_usage(
+        usage.prompt_tokens > 0
+            ? usage.prompt_tokens
+            : session_.estimate_context_usage(*session_.provider())
+    );
+    tui_->sidebar().set_context(session_.context_usage(), session_.provider()->context_window());
 
     // Build the final assistant message from accumulated data
     Message assistant_msg;
@@ -355,5 +373,3 @@ void Controller::reset_abort_pending()
         }
     }
 }
-
-

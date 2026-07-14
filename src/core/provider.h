@@ -27,6 +27,10 @@ public:
 
     virtual void abort() = 0;
 
+    virtual void set_model(const std::string& /*model*/) {}
+
+    virtual int context_window() const { return 0; }
+
     virtual int count_tokens(const std::string& text) const = 0;
 
     virtual std::string model() const = 0;

@@ -14,6 +14,7 @@ public:
     void set_project_context(const ProjectContext& ctx);
     void set_model(const std::string& model);
     void set_token_count(int prompt, int completion);
+    void set_context(int used, int available);
 
 private:
     mutable std::mutex mutex_;
@@ -21,6 +22,8 @@ private:
     std::string model_{"unknown"};
     int prompt_tokens_{0};
     int completion_tokens_{0};
+    int context_used_{0};
+    int context_available_{0};
 
     ftxui::Element render();
 };

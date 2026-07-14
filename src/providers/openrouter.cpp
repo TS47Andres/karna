@@ -29,6 +29,10 @@ OpenRouterProvider::OpenRouterProvider(const ProviderConfig& config)
 OpenRouterProvider::~OpenRouterProvider()
 {
     abort();
+    std::lock_guard<std::mutex> lock(worker_mutex_);
+    if (worker_.joinable()) {
+        worker_.join();
+    }
 }
 
 std::string OpenRouterProvider::name() const
@@ -44,6 +48,12 @@ std::string OpenRouterProvider::model() const
 void OpenRouterProvider::set_model(const std::string& model)
 {
     model_ = model;
+    context_window_ = fetch_context_window();
+}
+
+int OpenRouterProvider::context_window() const
+{
+    return context_window_;
 }
 
 void OpenRouterProvider::set_temperature(double temp)
@@ -82,6 +92,7 @@ json OpenRouterProvider::build_request_body(
     body["stream"] = true;
     body["max_tokens"] = max_tokens_;
     body["temperature"] = temperature_;
+    body["stream_options"] = {{"include_usage", true}};
 
     json messages = json::array();
 
@@ -273,7 +284,12 @@ void OpenRouterProvider::send(
 {
     abort_.store(false);
 
-    std::thread([this, history, tools, on_delta = std::move(on_delta), on_error = std::move(on_error), on_done = std::move(on_done)]() {
+    std::lock_guard<std::mutex> lock(worker_mutex_);
+    if (worker_.joinable() && worker_.get_id() != std::this_thread::get_id()) {
+        worker_.join();
+    }
+
+    worker_ = std::thread([this, history, tools, on_delta = std::move(on_delta), on_error = std::move(on_error), on_done = std::move(on_done)]() {
         CURL* curl = curl_easy_init();
         if (!curl) {
             if (on_error) on_error("Failed to initialize curl");
@@ -318,10 +334,57 @@ void OpenRouterProvider::send(
 
         curl_slist_free_all(headers);
         curl_easy_cleanup(curl);
-    }).detach();
+    });
 }
 
 int OpenRouterProvider::count_tokens(const std::string& text) const
 {
     return TokenCounter::estimate_for_model(text, model_);
+}
+
+int OpenRouterProvider::fetch_context_window() const
+{
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+        return 0;
+    }
+
+    std::string response;
+    struct curl_slist* headers = nullptr;
+    headers = curl_slist_append(headers, "Accept: application/json");
+    std::string auth = "Authorization: Bearer " + config_.api_key;
+    headers = curl_slist_append(headers, auth.c_str());
+
+    curl_easy_setopt(curl, CURLOPT_URL, (config_.base_url + "/models").c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, +[](char* data, size_t size, size_t nmemb, void* userp) {
+        auto* output = static_cast<std::string*>(userp);
+        output->append(data, size * nmemb);
+        return size * nmemb;
+    });
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+
+    CURLcode result = curl_easy_perform(curl);
+    long status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+
+    if (result != CURLE_OK || status < 200 || status >= 300) {
+        return 0;
+    }
+
+    try {
+        auto payload = json::parse(response);
+        for (const auto& model : payload.at("data")) {
+            if (model.value("id", "") == model_) {
+                return model.value("context_length", 0);
+            }
+        }
+    } catch (...) {
+        return 0;
+    }
+    return 0;
 }

@@ -1,4 +1,5 @@
 #include "tui/sidebar.h"
+#include <algorithm>
 #include <filesystem>
 
 using namespace ftxui;
@@ -28,6 +29,13 @@ void Sidebar::set_token_count(int prompt, int completion)
     std::lock_guard<std::mutex> lock(mutex_);
     prompt_tokens_ = prompt;
     completion_tokens_ = completion;
+}
+
+void Sidebar::set_context(int used, int available)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    context_used_ = std::max(0, used);
+    context_available_ = std::max(0, available);
 }
 
 Element Sidebar::render()
@@ -85,6 +93,10 @@ Element Sidebar::render()
     session_elements.push_back(hbox({ text("Prompt: ") | color_label, text(std::to_string(prompt_tokens_)) | color_dim }));
     session_elements.push_back(hbox({ text("Compl : ") | color_label, text(std::to_string(completion_tokens_)) | color_dim }));
     session_elements.push_back(hbox({ text("Total : ") | color_label, text(std::to_string(prompt_tokens_ + completion_tokens_)) | color_value }));
+    std::string context = context_available_ > 0
+        ? std::to_string(context_used_) + " / " + std::to_string(context_available_)
+        : std::to_string(context_used_) + " / ?";
+    session_elements.push_back(hbox({ text("Context: ") | color_label, text(context) | color_value }));
 
     // Section 3: Keys Guide
     Elements keys_elements;

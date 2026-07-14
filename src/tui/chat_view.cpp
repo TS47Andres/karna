@@ -31,9 +31,7 @@ Component ChatView::build()
 
 void ChatView::focus()
 {
-    if (component_) {
-        component_->TakeFocus();
-    }
+    return;
 }
 
 void ChatView::add_message(const Message& msg)
@@ -249,10 +247,6 @@ Element ChatView::render()
         }) | size(WIDTH, LESS_THAN, 60) | borderRounded | color(Color::GrayDark) | center;
 
         children.push_back(card_content);
-    }
-
-    if (scroll_to_bottom_ && !children.empty()) {
-        children.back() = children.back() | ftxui::focus;
     }
 
     return vbox(std::move(children)) | vscroll_indicator | yframe;

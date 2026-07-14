@@ -2,6 +2,8 @@
 
 #include "core/provider.h"
 #include "config/config.h"
+#include <thread>
+#include <mutex>
 
 class OpenRouterProvider : public Provider {
 public:
@@ -17,10 +19,11 @@ public:
         std::function<void(Usage)> on_done
     ) override;
     void abort() override;
+    void set_model(const std::string& model) override;
+    int context_window() const override;
     int count_tokens(const std::string& text) const override;
     std::string model() const override;
 
-    void set_model(const std::string& model);
     void set_temperature(double temp);
     void set_max_tokens(int max);
 
@@ -30,6 +33,9 @@ private:
     double temperature_;
     int max_tokens_;
     std::atomic<bool> abort_{false};
+    mutable std::mutex worker_mutex_;
+    std::thread worker_;
+    int context_window_{0};
 
     struct WriteCtx;
     static size_t write_callback(char* data, size_t size, size_t nmemb, void* userp);
@@ -40,4 +46,5 @@ private:
     ) const;
 
     std::string role_to_string(MessageRole role) const;
+    int fetch_context_window() const;
 };

@@ -6,7 +6,7 @@ using namespace ftxui;
 TuiApp::TuiApp()
     : screen_(ScreenInteractive::Fullscreen())
 {
-    screen_.TrackMouse(true);
+    screen_.TrackMouse(false);
 }
 
 TuiApp::~TuiApp()
@@ -88,14 +88,15 @@ void TuiApp::run()
             return true;
         }
         if (event == Event::Custom) {
-            bool typing = status_bar_.is_typing();
-            if (typing != last_typing_state_) {
-                if (typing) {
-                    chat_view_.focus();
-                } else {
-                    input_bar_.focus();
-                }
-                last_typing_state_ = typing;
+            std::queue<std::function<void()>> callbacks;
+            {
+                std::lock_guard<std::mutex> lock(callbacks_mutex_);
+                callbacks.swap(callbacks_);
+            }
+            while (!callbacks.empty()) {
+                auto callback = std::move(callbacks.front());
+                callbacks.pop();
+                callback();
             }
             return false;
         }
@@ -103,6 +104,7 @@ void TuiApp::run()
     });
 
     screen_.Loop(main_component_);
+    std::cout << "\033[?25h";
 }
 
 void TuiApp::set_typing_state(bool typing)
@@ -144,4 +146,13 @@ void TuiApp::set_on_escape(std::function<void()> callback)
 void TuiApp::request_refresh()
 {
     screen_.PostEvent(Event::Custom);
+}
+
+void TuiApp::post(std::function<void()> callback)
+{
+    {
+        std::lock_guard<std::mutex> lock(callbacks_mutex_);
+        callbacks_.push(std::move(callback));
+    }
+    request_refresh();
 }

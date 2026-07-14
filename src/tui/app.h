@@ -12,6 +12,8 @@
 #include <functional>
 #include <thread>
 #include <atomic>
+#include <mutex>
+#include <queue>
 
 class TuiApp {
 public:
@@ -30,6 +32,7 @@ public:
 
     void request_refresh();
     void set_typing_state(bool typing);
+    void post(std::function<void()> callback);
 
 private:
     ftxui::ScreenInteractive screen_;
@@ -46,4 +49,6 @@ private:
     std::thread refresh_thread_;
     std::atomic<bool> run_refresh_thread_{true};
     bool last_typing_state_{false};
+    std::mutex callbacks_mutex_;
+    std::queue<std::function<void()>> callbacks_;
 };

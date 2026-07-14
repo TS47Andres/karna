@@ -1,4 +1,5 @@
 #include "core/session.h"
+#include <algorithm>
 
 Session::Session(const Config& config)
     : model_(config.openrouter.default_model)
@@ -14,11 +15,16 @@ void Session::add_message(const Message& msg)
 void Session::clear()
 {
     history_.clear();
+    context_usage_ = 0;
 }
 
 void Session::set_model(const std::string& model)
 {
     model_ = model;
+    context_usage_ = 0;
+    if (provider_) {
+        provider_->set_model(model);
+    }
 }
 
 void Session::set_provider(ProviderPtr provider)
@@ -51,4 +57,26 @@ void Session::add_usage(const Usage& usage)
     total_usage_.prompt_tokens += usage.prompt_tokens;
     total_usage_.completion_tokens += usage.completion_tokens;
     total_usage_.total_tokens += usage.total_tokens;
+}
+
+int Session::context_usage() const
+{
+    return context_usage_;
+}
+
+void Session::set_context_usage(int tokens)
+{
+    context_usage_ = std::max(0, tokens);
+}
+
+int Session::estimate_context_usage(const Provider& provider) const
+{
+    int tokens = 0;
+    for (const auto& message : history_) {
+        tokens += provider.count_tokens(message.content);
+        for (const auto& tool_call : message.tool_calls) {
+            tokens += provider.count_tokens(tool_call.function_name + tool_call.arguments);
+        }
+    }
+    return tokens;
 }
