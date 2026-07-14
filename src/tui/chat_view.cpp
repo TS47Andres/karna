@@ -86,6 +86,12 @@ void ChatView::show_system_message(const std::string& msg)
     messages_.push_back({MessageRole::System, msg});
 }
 
+void ChatView::set_model(const std::string& model)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    model_ = model;
+}
+
 void ChatView::clear()
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -203,16 +209,84 @@ Element ChatView::render_message(const DisplayMessage& msg) const
     });
 }
 
+namespace {
+
+Element render_welcome_screen(const std::string& model)
+{
+    const auto accent = Color::RGB(115, 170, 255);
+    const auto muted_accent = Color::RGB(90, 120, 160);
+
+    auto command_row = [](const std::string& command, const std::string& description) {
+        return hbox({
+            text(command) | bold | color(Color::White) | size(WIDTH, EQUAL, 12),
+            text(description) | color(Color::GrayDark),
+        });
+    };
+
+    auto task_card = vbox({
+        hbox({
+            text("TASK") | bold | color(accent),
+            text("   describe what you want to build") | color(Color::GrayDark),
+        }),
+        separator() | color(Color::GrayDark),
+        hbox({
+            text("MODEL") | bold | color(Color::GrayLight),
+            text("   " + model) | color(Color::White),
+        }),
+        hbox({
+            text("TIP  ") | bold | color(Color::GrayLight),
+            text("   start with a goal, a bug, or a file to inspect") | color(Color::GrayDark),
+        }),
+    }) | borderRounded | color(Color::GrayDark) | size(WIDTH, LESS_THAN, 72);
+
+    auto shortcuts = vbox({
+        text("QUICK START") | bold | color(Color::GrayLight),
+        command_row("/model", "switch the active model"),
+        command_row("/setup", "save your API key"),
+        command_row("/help", "see all commands"),
+    }) | size(WIDTH, LESS_THAN, 72);
+
+    return vbox({
+        text("TERMINAL AGENT  /  READY") | bold | color(accent) | hcenter,
+        text(""),
+        hbox({
+            text("<") | color(muted_accent),
+            text(" KARNA ") | bold | color(Color::White),
+            text(">") | color(muted_accent),
+        }) | hcenter,
+        paragraph("A focused workspace for turning plain language into working software.") |
+            color(Color::GrayLight) | hcenter,
+        text(""),
+        task_card,
+        text(""),
+        shortcuts,
+    }) | center;
+}
+
+} // namespace
+
 Element ChatView::render()
 {
     std::lock_guard<std::mutex> lock(mutex_);
 
     Elements children;
+    if (!model_.empty()) {
+        children.push_back(render_message({
+            MessageRole::System,
+            "Karna v0.1.0 | Model: " + model_ + " | Type /help for commands",
+            ""
+        }));
+    }
     for (const auto& msg : messages_) {
         children.push_back(render_message(msg));
     }
 
-    if (children.empty()) {
+    if (messages_.empty()) {
+        children.clear();
+        children.push_back(render_welcome_screen(model_));
+    }
+
+    if (false) {
         auto title = text("   █  █  █▀▀█  █▀▀█  █▀▀█  █▀▀█   ") | bold | color(Color::White) | hcenter;
         auto title2 = text("  █▀▀█  █▄▄█  █▄▄▀  █  █  █▄▄█   ") | bold | color(Color::White) | hcenter;
         auto subtitle = text("Karna - Term-based AI coding harness") | hcenter | color(Color::GrayLight);

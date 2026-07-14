@@ -10,6 +10,7 @@
 #include "providers/openrouter.h"
 #include "project/context.h"
 
+#include <algorithm>
 #include <thread>
 
 Controller::Controller()
@@ -20,6 +21,12 @@ Controller::Controller()
 
 Controller::~Controller()
 {
+    {
+        std::lock_guard<std::mutex> lock(tool_worker_mutex_);
+        if (tool_worker_.joinable()) {
+            tool_worker_.join();
+        }
+    }
     if (session_.provider()) {
         session_.provider()->abort();
         session_.set_provider(nullptr);
@@ -94,15 +101,11 @@ void Controller::run_chat(const std::string& initial_prompt)
     tui_->sidebar().set_model(session_.model());
     tui_->sidebar().set_token_count(0, 0);
     tui_->sidebar().set_context(session_.context_usage(), session_.provider()->context_window());
+    tui_->chat_view().set_model(session_.model());
 
     tui_->status_bar().set_model(session_.model());
     tui_->status_bar().set_status("Ready");
     tui_->set_typing_state(false);
-
-    tui_->chat_view().show_system_message(
-        "Karna v0.1.0 | Model: " + session_.model() +
-        " | Type /help for commands"
-    );
 
     tui_->input_bar().set_on_submit([this](const std::string& text) {
         handle_user_input(text);
@@ -160,6 +163,7 @@ void Controller::handle_slash_command(const std::string& cmd, const std::string&
         }
         tui_->status_bar().set_model(session_.model());
         tui_->sidebar().set_model(session_.model());
+        tui_->chat_view().set_model(session_.model());
         tui_->sidebar().set_context(
             session_.context_usage(),
             session_.provider() ? session_.provider()->context_window() : 0
@@ -281,11 +285,7 @@ void Controller::on_stream_done(Usage usage)
 
     // Check if we need to execute tool calls
     if (stream_finish_reason_ == FinishReason::ToolCalls && !tool_calls_to_process.empty()) {
-        // Restore into member for execute_tool_calls_and_continue
-        stream_tool_calls_ = std::move(tool_calls_to_process);
-        tui_->status_bar().set_status("Running tools...");
-        tui_->set_typing_state(true);
-        execute_tool_calls_and_continue();
+        execute_tool_calls_and_continue(std::move(tool_calls_to_process));
     } else {
         tui_->status_bar().set_status("Ready");
         tui_->set_typing_state(false);
@@ -293,45 +293,76 @@ void Controller::on_stream_done(Usage usage)
     }
 }
 
-void Controller::execute_tool_calls_and_continue()
+void Controller::execute_tool_calls_and_continue(std::map<int, ToolCall> tool_calls)
 {
-    // Execute each tool call
-    for (auto& [idx, tc] : stream_tool_calls_) {
-        if (tc.function_name.empty()) {
-            continue;
-        }
-        Tool* tool = tool_registry_.find(tc.function_name);
-        if (!tool) {
-            Skill* skill = skill_registry_.find(tc.function_name);
-            if (skill) {
-                tool = skill;
-            }
+    // Keep filesystem, regex, and process tools off the UI event loop. This
+    // also prevents a tool callback from re-entering the provider lifecycle.
+    tui_->status_bar().set_status("Running tools...");
+    tui_->set_typing_state(true);
+
+    try {
+        std::lock_guard<std::mutex> lock(tool_worker_mutex_);
+        if (tool_worker_.joinable()) {
+            tool_worker_.join();
         }
 
-        std::string result_content;
-        if (!tool) {
-            result_content = "Error: Unknown tool '" + tc.function_name + "'";
-        } else {
-            try {
-                json args = json::parse(tc.arguments);
-                ToolResult result = tool->execute(args);
-                result_content = result.output;
-                if (!result.success) {
-                    result_content = "Error: " + result.output;
+        tool_worker_ = std::thread([this, tool_calls = std::move(tool_calls)]() mutable {
+            std::vector<ToolExecutionResult> results;
+            results.reserve(tool_calls.size());
+
+            for (auto& [idx, tc] : tool_calls) {
+                (void)idx;
+                ToolExecutionResult execution;
+                execution.call = tc;
+
+                if (tc.function_name.empty()) {
+                    execution.output = "Error: tool name was empty";
+                    results.push_back(std::move(execution));
+                    continue;
                 }
-            } catch (const std::exception& e) {
-                result_content = std::string("Error parsing arguments: ") + e.what();
+
+                Tool* tool = tool_registry_.find(tc.function_name);
+                if (!tool) {
+                    Skill* skill = skill_registry_.find(tc.function_name);
+                    if (skill) {
+                        tool = skill;
+                    }
+                }
+
+                if (!tool) {
+                    execution.output = "Error: Unknown tool '" + tc.function_name + "'";
+                } else {
+                    try {
+                        json args = json::parse(tc.arguments);
+                        ToolResult result = tool->execute(args);
+                        execution.success = result.success;
+                        execution.output = result.output;
+                    } catch (const std::exception& e) {
+                        execution.output = std::string("Error parsing arguments: ") + e.what();
+                    }
+                }
+                results.push_back(std::move(execution));
             }
-        }
 
-        tui_->chat_view().show_system_message(
-            "Tool '" + tc.function_name + "' executed"
-        );
+            tui_->post([this, results = std::move(results)]() mutable {
+                finish_tool_execution(std::move(results));
+            });
+        });
+    } catch (const std::exception& e) {
+        tui_->chat_view().show_system_message("Tool execution failed: " + std::string(e.what()));
+        tui_->status_bar().set_status("Error");
+        tui_->set_typing_state(false);
+        processing_.store(false);
+    }
+}
 
-        // Add tool result to session and TUI
+void Controller::finish_tool_execution(std::vector<ToolExecutionResult> results)
+{
+    for (const auto& execution : results) {
+        const auto& tc = execution.call;
         Message result_msg;
         result_msg.role = MessageRole::Tool;
-        result_msg.content = result_content;
+        result_msg.content = execution.success ? execution.output : "Error: " + execution.output;
         if (!tc.id.empty()) {
             result_msg.tool_call_id = tc.id;
         }
@@ -339,17 +370,33 @@ void Controller::execute_tool_calls_and_continue()
             result_msg.name = tc.function_name;
         }
         session_.add_message(result_msg);
-        tui_->chat_view().add_message(result_msg);
+
+        if (tc.function_name == "glob" || tc.function_name == "grep") {
+            std::string summary = tc.function_name + ": ";
+            if (!execution.success) {
+                summary += "failed";
+            } else if (execution.output.rfind("No files matching", 0) == 0 ||
+                       execution.output.rfind("No matches found", 0) == 0) {
+                summary += "no matches";
+            } else {
+                const auto line_count = static_cast<int>(std::count(
+                    execution.output.begin(), execution.output.end(), '\n')) +
+                    (!execution.output.empty() && execution.output.back() != '\n' ? 1 : 0);
+                summary += std::to_string(line_count) + " result" + (line_count == 1 ? "" : "s");
+            }
+            tui_->chat_view().show_system_message(summary);
+        } else {
+            tui_->chat_view().show_system_message("Tool '" + tc.function_name + "' executed");
+            tui_->chat_view().add_message(result_msg);
+        }
     }
 
-    // Clear accumulators for the next round
     stream_content_.clear();
     stream_tool_calls_.clear();
     stream_finish_reason_ = FinishReason::Unknown;
 
     tui_->status_bar().set_status("Thinking...");
     tui_->set_typing_state(true);
-
     send_to_provider();
 }
 

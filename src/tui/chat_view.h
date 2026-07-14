@@ -20,6 +20,7 @@ public:
     void add_delta(const Delta& delta);
     void append_tool_call(const std::string& text);
     void show_system_message(const std::string& msg);
+    void set_model(const std::string& model);
     void clear();
     void set_on_scroll_to_bottom(std::function<void()> cb);
     void set_scroll_to_bottom(bool scroll);
@@ -34,6 +35,7 @@ private:
     };
 
     std::vector<DisplayMessage> messages_;
+    std::string model_;
     std::mutex mutex_;
     bool scroll_to_bottom_ = true;
     std::function<void()> on_scroll_to_bottom_;

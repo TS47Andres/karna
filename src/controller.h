@@ -5,6 +5,10 @@
 #include <atomic>
 #include <map>
 #include <chrono>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
 
 #include "config/config.h"
 #include "core/session.h"
@@ -43,6 +47,14 @@ private:
     std::map<int, ToolCall> stream_tool_calls_;
     FinishReason stream_finish_reason_;
 
+    struct ToolExecutionResult {
+        ToolCall call;
+        std::string output;
+        bool success{false};
+    };
+    std::mutex tool_worker_mutex_;
+    std::thread tool_worker_;
+
     void setup_tools();
     void setup_skills();
     void setup_commands();
@@ -57,7 +69,8 @@ private:
     void on_delta(const Delta& delta);
     void on_stream_error(const std::string& error);
     void on_stream_done(Usage usage);
-    void execute_tool_calls_and_continue();
+    void execute_tool_calls_and_continue(std::map<int, ToolCall> tool_calls);
+    void finish_tool_execution(std::vector<ToolExecutionResult> results);
 
     void handle_escape_key();
     void reset_abort_pending();
