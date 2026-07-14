@@ -89,6 +89,21 @@ void ChatView::show_system_message(const std::string& msg)
     messages_.push_back({MessageRole::System, msg});
 }
 
+void ChatView::show_tool_activity(const std::string& label)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    messages_.push_back({MessageRole::Tool, label, "", ToolDisplay::Activity});
+}
+
+void ChatView::show_tool_diff(
+    const std::string& path,
+    const std::string& before,
+    const std::string& after)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    messages_.push_back({MessageRole::Tool, path, "", ToolDisplay::Diff, before, after});
+}
+
 void ChatView::set_model(const std::string& model)
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -179,6 +194,17 @@ Element ChatView::render_message(const DisplayMessage& msg) const
         });
     }
 
+    if (msg.role == MessageRole::Tool && msg.tool_display == ToolDisplay::Activity) {
+        return vbox({
+            text("→ " + msg.content) | color(Color::GrayDark) | dim,
+            text(""),
+        });
+    }
+
+    if (msg.role == MessageRole::Tool && msg.tool_display == ToolDisplay::Diff) {
+        return render_tool_diff(msg);
+    }
+
     if (msg.role == MessageRole::Tool) {
         std::string tool_header = " [Tool: " + (msg.name.empty() ? "unknown" : msg.name) + "] ";
         Elements elements;
@@ -210,6 +236,91 @@ Element ChatView::render_message(const DisplayMessage& msg) const
         content,
         text(""),
     });
+}
+
+Element ChatView::render_tool_diff(const DisplayMessage& msg) const
+{
+    const auto split_lines = [](const std::string& content) {
+        std::vector<std::string> lines;
+        std::stringstream stream(content);
+        std::string line;
+        while (std::getline(stream, line)) {
+            lines.push_back(line);
+        }
+        if (!content.empty() && content.back() == '\n') {
+            lines.push_back("");
+        }
+        return lines;
+    };
+
+    const auto before = split_lines(msg.before);
+    const auto after = split_lines(msg.after);
+
+    size_t prefix = 0;
+    while (prefix < before.size() && prefix < after.size() && before[prefix] == after[prefix]) {
+        ++prefix;
+    }
+
+    size_t suffix = 0;
+    while (suffix < before.size() - prefix && suffix < after.size() - prefix &&
+           before[before.size() - 1 - suffix] == after[after.size() - 1 - suffix]) {
+        ++suffix;
+    }
+
+    const size_t context_start = prefix > 3 ? prefix - 3 : 0;
+    const size_t context_end_before = std::min(before.size(), before.size() - suffix + 3);
+    const size_t context_end_after = std::min(after.size(), after.size() - suffix + 3);
+
+    const auto format_number = [](size_t number) {
+        std::ostringstream out;
+        if (number != 0) {
+            out << number;
+        }
+        return out.str();
+    };
+
+    const auto diff_line = [&format_number](size_t old_number, size_t new_number, char marker,
+                                              const std::string& content, Color foreground, Color background) {
+        return hbox({
+            text(format_number(old_number)) | color(Color::GrayDark) | size(WIDTH, EQUAL, 5),
+            text(format_number(new_number)) | color(Color::GrayDark) | size(WIDTH, EQUAL, 5),
+            text(std::string(1, marker) + " ") | color(foreground) | bold,
+            paragraph(content.empty() ? " " : content) | color(foreground) | flex,
+        }) | bgcolor(background);
+    };
+
+    Elements lines;
+    for (size_t index = context_start; index < prefix; ++index) {
+        lines.push_back(diff_line(index + 1, index + 1, ' ', before[index], Color::GrayLight, Color::Default));
+    }
+    for (size_t index = prefix; index < before.size() - suffix; ++index) {
+        lines.push_back(diff_line(index + 1, 0, '-', before[index], Color::RGB(255, 150, 150), Color::RGB(60, 25, 25)));
+    }
+    for (size_t index = prefix; index < after.size() - suffix; ++index) {
+        lines.push_back(diff_line(0, index + 1, '+', after[index], Color::RGB(150, 235, 170), Color::RGB(20, 55, 30)));
+    }
+    for (size_t offset = 0; offset < std::max(context_end_before - (before.size() - suffix), context_end_after - (after.size() - suffix)); ++offset) {
+        const size_t before_index = before.size() - suffix + offset;
+        const size_t after_index = after.size() - suffix + offset;
+        if (before_index < before.size() && after_index < after.size()) {
+            lines.push_back(diff_line(before_index + 1, after_index + 1, ' ', before[before_index], Color::GrayLight, Color::Default));
+        }
+    }
+
+    if (lines.empty()) {
+        lines.push_back(text(" No content changes") | color(Color::GrayDark) | dim);
+    }
+
+    return vbox({
+        hbox({
+            text(" " + msg.content + " ") | bold | color(Color::White),
+            filler(),
+            text(" diff ") | color(Color::GrayDark) | dim,
+        }),
+        separator() | color(Color::GrayDark),
+        vbox(std::move(lines)),
+        text(""),
+    }) | borderRounded | color(Color::GrayDark);
 }
 
 namespace {

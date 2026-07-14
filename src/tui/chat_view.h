@@ -20,6 +20,8 @@ public:
     void add_delta(const Delta& delta);
     void append_tool_call(const std::string& text);
     void show_system_message(const std::string& msg);
+    void show_tool_activity(const std::string& label);
+    void show_tool_diff(const std::string& path, const std::string& before, const std::string& after);
     void set_model(const std::string& model);
     void clear();
     void set_on_scroll_to_bottom(std::function<void()> cb);
@@ -29,10 +31,18 @@ public:
 
 private:
     ftxui::Component component_;
+    enum class ToolDisplay {
+        Default,
+        Activity,
+        Diff,
+    };
     struct DisplayMessage {
         MessageRole role;
         std::string content;
         std::string name;
+        ToolDisplay tool_display{ToolDisplay::Default};
+        std::string before;
+        std::string after;
     };
 
     std::vector<DisplayMessage> messages_;
@@ -42,6 +52,7 @@ private:
     std::function<void()> on_scroll_to_bottom_;
     ftxui::Element render();
     ftxui::Element render_message(const DisplayMessage& msg) const;
+    ftxui::Element render_tool_diff(const DisplayMessage& msg) const;
     std::string role_label(MessageRole role) const;
     ftxui::Color role_color(MessageRole role) const;
     ftxui::Color role_bg(MessageRole role) const;

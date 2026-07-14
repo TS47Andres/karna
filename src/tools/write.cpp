@@ -34,6 +34,14 @@ ToolResult WriteTool::execute(const json& params)
     std::string path = params["path"].get<std::string>();
     std::string content = params["content"].get<std::string>();
 
+    std::string previous_content;
+    if (fs::exists(path) && fs::is_regular_file(path)) {
+        std::ifstream existing(path, std::ios::binary);
+        previous_content.assign(
+            std::istreambuf_iterator<char>(existing),
+            std::istreambuf_iterator<char>());
+    }
+
     fs::path parent = fs::path(path).parent_path();
     if (!parent.empty() && !fs::exists(parent)) {
         fs::create_directories(parent);
@@ -47,5 +55,11 @@ ToolResult WriteTool::execute(const json& params)
     file << content;
     file.close();
 
-    return ToolResult::ok("Successfully wrote " + std::to_string(content.size()) + " bytes to " + fs::absolute(path).string());
+    return ToolResult::ok(
+        "Successfully wrote " + std::to_string(content.size()) + " bytes to " + fs::absolute(path).string(),
+        {
+            {"path", path},
+            {"before", previous_content},
+            {"after", content},
+        });
 }

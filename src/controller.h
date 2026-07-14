@@ -51,6 +51,8 @@ private:
         ToolCall call;
         std::string output;
         bool success{false};
+        json arguments{json::object()};
+        json data{json::object()};
     };
     std::mutex tool_worker_mutex_;
     std::thread tool_worker_;

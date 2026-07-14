@@ -355,7 +355,9 @@ void Controller::execute_tool_calls_and_continue(std::map<int, ToolCall> tool_ca
                             json args = json::parse(tc.arguments);
                             ToolResult result = tool->execute(args);
                             execution.success = result.success;
+                            execution.arguments = std::move(args);
                             execution.output = std::move(result.output);
+                            execution.data = std::move(result.data);
                         } catch (const json::exception& e) {
                             execution.output = std::string("Invalid tool arguments: ") + e.what();
                         } catch (const std::exception& e) {
@@ -427,20 +429,36 @@ void Controller::finish_tool_execution(std::vector<ToolExecutionResult> results)
         }
         session_.add_message(result_msg);
 
-        if (tc.function_name == "glob" || tc.function_name == "grep") {
-            std::string summary = tc.function_name + ": ";
+        if (tc.function_name == "read" || tc.function_name == "glob" || tc.function_name == "grep") {
+            std::string summary;
             if (!execution.success) {
-                summary += "failed";
+                summary = tc.function_name + " failed";
+            } else if (tc.function_name == "read") {
+                summary = "Read " + execution.arguments.value("path", "file");
             } else if (execution.output.rfind("No files matching", 0) == 0 ||
                        execution.output.rfind("No matches found", 0) == 0) {
-                summary += "no matches";
+                summary = tc.function_name + ": no matches";
             } else {
                 const auto line_count = static_cast<int>(std::count(
                     execution.output.begin(), execution.output.end(), '\n')) +
                     (!execution.output.empty() && execution.output.back() != '\n' ? 1 : 0);
-                summary += std::to_string(line_count) + " result" + (line_count == 1 ? "" : "s");
+                if (tc.function_name == "grep") {
+                    summary = "Grep \"" + execution.arguments.value("pattern", "") + "\" · " +
+                        std::to_string(line_count) + " match" + (line_count == 1 ? "" : "es");
+                } else {
+                    summary = "Glob \"" + execution.arguments.value("pattern", "") + "\" · " +
+                        std::to_string(line_count) + " result" + (line_count == 1 ? "" : "s");
+                }
             }
-            tui_->chat_view().show_system_message(summary);
+            tui_->chat_view().show_tool_activity(summary);
+        } else if ((tc.function_name == "write" || tc.function_name == "edit") &&
+                   execution.success && execution.data.is_object() &&
+                   execution.data.contains("path") && execution.data.contains("before") &&
+                   execution.data.contains("after")) {
+            tui_->chat_view().show_tool_diff(
+                execution.data.value("path", tc.function_name),
+                execution.data.value("before", ""),
+                execution.data.value("after", ""));
         } else {
             tui_->chat_view().show_system_message("Tool '" + tc.function_name + "' executed");
             tui_->chat_view().add_message(result_msg);

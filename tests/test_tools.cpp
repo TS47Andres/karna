@@ -27,6 +27,8 @@ TEST_CASE("WriteTool creates and writes file", "[tools]")
     WriteTool tool;
     auto result = tool.execute(json::parse(R"({"path": "test_tmp/write_test.txt", "content": "hello world"})"));
     REQUIRE(result.success);
+    REQUIRE(result.data["before"] == "");
+    REQUIRE(result.data["after"] == "hello world");
 
     {
         std::ifstream f("test_tmp/write_test.txt");
@@ -48,6 +50,8 @@ TEST_CASE("EditTool replaces text", "[tools]")
     EditTool tool;
     auto result = tool.execute(json::parse(R"({"path": "test_tmp/edit_test.txt", "old_string": "old", "new_string": "new"})"));
     REQUIRE(result.success);
+    REQUIRE(result.data["before"] == "old content");
+    REQUIRE(result.data["after"] == "new content");
 
     {
         std::ifstream f("test_tmp/edit_test.txt");

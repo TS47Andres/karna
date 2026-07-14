@@ -53,6 +53,7 @@ ToolResult EditTool::execute(const json& params)
     buf << file.rdbuf();
     std::string content = buf.str();
     file.close();
+    const std::string before_content = content;
 
     size_t pos = content.find(old_str);
     if (pos == std::string::npos) {
@@ -68,5 +69,11 @@ ToolResult EditTool::execute(const json& params)
     out << content;
     out.close();
 
-    return ToolResult::ok("Successfully applied edit to " + fs::absolute(path).string());
+    return ToolResult::ok(
+        "Successfully applied edit to " + fs::absolute(path).string(),
+        {
+            {"path", path},
+            {"before", before_content},
+            {"after", content},
+        });
 }
