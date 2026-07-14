@@ -24,6 +24,7 @@ public:
     void clear();
     void set_on_scroll_to_bottom(std::function<void()> cb);
     void set_scroll_to_bottom(bool scroll);
+    void scroll_by(float amount);
     void focus();
 
 private:
@@ -37,7 +38,7 @@ private:
     std::vector<DisplayMessage> messages_;
     std::string model_;
     std::mutex mutex_;
-    bool scroll_to_bottom_ = true;
+    float scroll_position_{1.0f};
     std::function<void()> on_scroll_to_bottom_;
     ftxui::Element render();
     ftxui::Element render_message(const DisplayMessage& msg) const;

@@ -83,12 +83,30 @@ void TuiApp::run()
         if (event == Event::Tab || event == Event::TabReverse) {
             return true; // Consume Tab to prevent focus loss
         }
+        if (event.is_mouse()) {
+            if (event.mouse().button == Mouse::WheelUp) {
+                chat_view_.scroll_by(-0.08f);
+                return true;
+            }
+            if (event.mouse().button == Mouse::WheelDown) {
+                chat_view_.scroll_by(0.08f);
+                return true;
+            }
+        }
+        if (event == Event::ArrowUp && input_bar_.get_text().empty()) {
+            chat_view_.scroll_by(-0.08f);
+            return true;
+        }
+        if (event == Event::ArrowDown && input_bar_.get_text().empty()) {
+            chat_view_.scroll_by(0.08f);
+            return true;
+        }
         if (event == Event::PageUp || event == Event::Home) {
-            chat_view_.set_scroll_to_bottom(false);
+            chat_view_.scroll_by(event == Event::Home ? -1.0f : -0.25f);
             return true;
         }
         if (event == Event::PageDown || event == Event::End) {
-            chat_view_.set_scroll_to_bottom(true);
+            chat_view_.scroll_by(event == Event::End ? 1.0f : 0.25f);
             return true;
         }
         if (event == Event::Custom) {

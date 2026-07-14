@@ -1,4 +1,5 @@
 #include "tui/chat_view.h"
+#include <algorithm>
 #include <sstream>
 
 using namespace ftxui;
@@ -12,17 +13,19 @@ Component ChatView::build()
     component_ = CatchEvent(renderer, [this](Event event) {
         if (event.is_mouse()) {
             if (event.mouse().button == Mouse::WheelUp) {
-                scroll_to_bottom_ = false;
+                scroll_by(-0.08f);
             } else if (event.mouse().button == Mouse::WheelDown) {
-                scroll_to_bottom_ = true;
+                scroll_by(0.08f);
             }
-            return false;
+            return true;
         }
         if (event == Event::PageUp || event == Event::Home) {
-            scroll_to_bottom_ = false;
+            scroll_by(event == Event::Home ? -1.0f : -0.25f);
+            return true;
         }
         if (event == Event::PageDown || event == Event::End) {
-            scroll_to_bottom_ = true;
+            scroll_by(event == Event::End ? 1.0f : 0.25f);
+            return true;
         }
         return false;
     });
@@ -323,11 +326,19 @@ Element ChatView::render()
         children.push_back(card_content);
     }
 
-    return vbox(std::move(children)) | vscroll_indicator | yframe;
+    return vbox(std::move(children)) |
+        focusPositionRelative(0.0f, scroll_position_) |
+        vscroll_indicator | yframe;
 }
 
 void ChatView::set_scroll_to_bottom(bool scroll)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    scroll_to_bottom_ = scroll;
+    scroll_position_ = scroll ? 1.0f : 0.0f;
+}
+
+void ChatView::scroll_by(float amount)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    scroll_position_ = std::clamp(scroll_position_ + amount, 0.0f, 1.0f);
 }

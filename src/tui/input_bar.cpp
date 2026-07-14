@@ -109,7 +109,8 @@ Component InputBar::build()
     input_component_ = input;
 
     auto input_with_history = CatchEvent(input, [this](Event event) {
-        if (event == Event::ArrowUp && !show_suggestions_ && !history_.empty()) {
+        if ((event == Event::ArrowUp || event == Event::ArrowUpCtrl) &&
+            !show_suggestions_ && !history_.empty()) {
             if (history_index_ == -1) {
                 history_index_ = static_cast<int>(history_.size()) - 1;
             } else if (history_index_ > 0) {
@@ -118,7 +119,8 @@ Component InputBar::build()
             *input_content_ = history_[history_index_];
             return true;
         }
-        if (event == Event::ArrowDown && !show_suggestions_ && history_index_ >= 0) {
+        if ((event == Event::ArrowDown || event == Event::ArrowDownCtrl) &&
+            !show_suggestions_ && history_index_ >= 0) {
             if (history_index_ < static_cast<int>(history_.size()) - 1) {
                 ++history_index_;
                 *input_content_ = history_[history_index_];
