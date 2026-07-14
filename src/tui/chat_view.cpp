@@ -293,12 +293,15 @@ Element ChatView::render_message(const DisplayMessage& msg) const
 
     if (msg.role == MessageRole::Tool && msg.tool_display == ToolDisplay::Activity) {
         return text("-> " + msg.content) | color(Color::GrayDark) | dim;
+#if 0
         return vbox({
             text("→ " + msg.content) | color(Color::GrayDark) | dim,
             text(""),
         });
     }
 
+#endif
+    }
     if (msg.role == MessageRole::Tool && msg.tool_display == ToolDisplay::Diff) {
         return render_tool_diff(msg);
     }
@@ -521,8 +524,18 @@ Element ChatView::render()
             ""
         }));
     }
-    for (const auto& msg : messages_) {
-        children.push_back(render_message(msg));
+    for (size_t index = 0; index < messages_.size();) {
+        if (messages_[index].role == MessageRole::Tool) {
+            Elements tool_messages;
+            while (index < messages_.size() && messages_[index].role == MessageRole::Tool) {
+                tool_messages.push_back(render_message(messages_[index]));
+                ++index;
+            }
+            children.push_back(vbox(std::move(tool_messages)));
+        } else {
+            children.push_back(render_message(messages_[index]));
+            ++index;
+        }
     }
 
     if (messages_.empty()) {
