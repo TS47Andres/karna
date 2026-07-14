@@ -14,6 +14,7 @@ public:
     void send(
         const std::vector<Message>& history,
         const json& tools,
+        const std::string& model,
         std::function<void(Delta)> on_delta,
         std::function<void(std::string)> on_error,
         std::function<void(Usage)> on_done
@@ -46,7 +47,8 @@ private:
 
     json build_request_body(
         const std::vector<Message>& history,
-        const json& tools
+        const json& tools,
+        const std::string& model
     ) const;
 
     std::string role_to_string(MessageRole role) const;

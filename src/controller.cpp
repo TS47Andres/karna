@@ -207,6 +207,7 @@ void Controller::send_to_provider()
     provider->send(
         session_.history(),
         tools_json_,
+        session_.model(),
         [tui, this](Delta delta) { tui->post([this, delta = std::move(delta)]() { on_delta(delta); }); },
         [tui, this](std::string error) { tui->post([this, error = std::move(error)]() { on_stream_error(error); }); },
         [tui, this](Usage usage) { tui->post([this, usage]() { on_stream_done(usage); }); }

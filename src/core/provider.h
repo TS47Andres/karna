@@ -27,6 +27,7 @@ public:
     virtual void send(
         const std::vector<Message>& history,
         const json& tools,
+        const std::string& model,
         std::function<void(Delta)> on_delta,
         std::function<void(std::string)> on_error,
         std::function<void(Usage)> on_done

@@ -20,10 +20,17 @@ void Session::clear()
 
 void Session::set_model(const std::string& model)
 {
-    model_ = model;
-    context_usage_ = 0;
+    const auto first = model.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) {
+        return;
+    }
+    const auto last = model.find_last_not_of(" \t\r\n");
+    model_ = model.substr(first, last - first + 1);
     if (provider_) {
-        provider_->set_model(model);
+        provider_->set_model(model_);
+        context_usage_ = estimate_context_usage(*provider_);
+    } else {
+        context_usage_ = 0;
     }
 }
 

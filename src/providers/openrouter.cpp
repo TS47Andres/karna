@@ -90,6 +90,7 @@ std::vector<ModelInfo> OpenRouterProvider::available_models() const
 
 int OpenRouterProvider::context_window() const
 {
+    std::lock_guard<std::mutex> lock(metadata_mutex_);
     return context_window_;
 }
 
@@ -121,11 +122,12 @@ std::string OpenRouterProvider::role_to_string(MessageRole role) const
 
 json OpenRouterProvider::build_request_body(
     const std::vector<Message>& history,
-    const json& tools
+    const json& tools,
+    const std::string& model
 ) const
 {
     json body;
-    body["model"] = model_;
+    body["model"] = model;
     body["stream"] = true;
     body["max_tokens"] = max_tokens_;
     body["temperature"] = temperature_;
@@ -315,6 +317,7 @@ size_t OpenRouterProvider::write_callback(char* data, size_t size, size_t nmemb,
 void OpenRouterProvider::send(
     const std::vector<Message>& history,
     const json& tools,
+    const std::string& model,
     std::function<void(Delta)> on_delta,
     std::function<void(std::string)> on_error,
     std::function<void(Usage)> on_done)
@@ -326,7 +329,7 @@ void OpenRouterProvider::send(
         worker_.join();
     }
 
-    worker_ = std::thread([this, history, tools, on_delta = std::move(on_delta), on_error = std::move(on_error), on_done = std::move(on_done)]() {
+    worker_ = std::thread([this, history, tools, request_model = model, on_delta = std::move(on_delta), on_error = std::move(on_error), on_done = std::move(on_done)]() {
         CURL* curl = curl_easy_init();
         if (!curl) {
             if (on_error) on_error("Failed to initialize curl");
@@ -334,7 +337,7 @@ void OpenRouterProvider::send(
         }
         configure_curl_ssl(curl);
 
-        json body = build_request_body(history, tools);
+        json body = build_request_body(history, tools, request_model);
         std::string body_str = body.dump();
 
         struct curl_slist* headers = nullptr;
@@ -424,6 +427,9 @@ std::vector<ModelInfo> OpenRouterProvider::fetch_models() const
             info.name = model.value("name", "");
             info.owned_by = model.value("owned_by", "");
             info.context_length = model.value("context_length", 0);
+            if (info.context_length <= 0 && model.contains("top_provider") && model["top_provider"].is_object()) {
+                info.context_length = model["top_provider"].value("context_length", 0);
+            }
             if (!info.id.empty()) {
                 models.push_back(std::move(info));
             }
