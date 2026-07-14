@@ -68,5 +68,5 @@ ToolResult EditTool::execute(const json& params)
     out << content;
     out.close();
 
-    return ToolResult::ok("Successfully applied edit to " + path);
+    return ToolResult::ok("Successfully applied edit to " + fs::absolute(path).string());
 }

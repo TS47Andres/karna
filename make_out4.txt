@@ -1,0 +1,33 @@
+mingw32-make: Entering directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+mingw32-make[1]: Entering directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+mingw32-make[2]: Entering directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+mingw32-make[2]: Leaving directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+[  6%] Built target spdlog
+mingw32-make[2]: Entering directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+mingw32-make[2]: Leaving directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+[ 12%] Built target screen
+mingw32-make[2]: Entering directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+mingw32-make[2]: Leaving directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+[ 41%] Built target dom
+mingw32-make[2]: Entering directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+mingw32-make[2]: Leaving directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+[ 59%] Built target component
+mingw32-make[2]: Entering directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+mingw32-make[2]: Leaving directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+[ 59%] Built target CLI11
+mingw32-make[2]: Entering directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+mingw32-make[2]: Leaving directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+[ 60%] Built target md4c
+mingw32-make[2]: Entering directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+mingw32-make[2]: Leaving directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+mingw32-make[2]: Entering directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+[ 61%] Building CXX object CMakeFiles/karna_lib.dir/src/tui/chat_view.cpp.obj
+CMakeFiles\karna_lib.dir\build.make:528: recipe for target 'CMakeFiles/karna_lib.dir/src/tui/chat_view.cpp.obj' failed
+mingw32-make[2]: *** [CMakeFiles/karna_lib.dir/src/tui/chat_view.cpp.obj] Error 1
+mingw32-make[2]: Leaving directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+CMakeFiles\Makefile2:391: recipe for target 'CMakeFiles/karna_lib.dir/all' failed
+mingw32-make[1]: *** [CMakeFiles/karna_lib.dir/all] Error 2
+mingw32-make[1]: Leaving directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+Makefile:154: recipe for target 'all' failed
+mingw32-make: *** [all] Error 2
+mingw32-make: Leaving directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'

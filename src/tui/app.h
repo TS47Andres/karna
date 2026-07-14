@@ -29,10 +29,13 @@ public:
     void set_on_escape(std::function<void()> callback);
 
     void request_refresh();
+    void set_typing_state(bool typing);
 
 private:
     ftxui::ScreenInteractive screen_;
     ftxui::Component main_component_;
+    ftxui::Component chat_component_;
+    ftxui::Component input_component_;
 
     ChatView chat_view_;
     InputBar input_bar_;
@@ -42,4 +45,5 @@ private:
     std::function<void()> on_escape_;
     std::thread refresh_thread_;
     std::atomic<bool> run_refresh_thread_{true};
+    bool last_typing_state_{false};
 };

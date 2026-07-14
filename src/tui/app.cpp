@@ -6,7 +6,7 @@ using namespace ftxui;
 TuiApp::TuiApp()
     : screen_(ScreenInteractive::Fullscreen())
 {
-    screen_.TrackMouse(false);
+    screen_.TrackMouse(true);
 }
 
 TuiApp::~TuiApp()
@@ -30,20 +30,20 @@ void TuiApp::run()
     });
 
     std::cout << "\033[?25l";
-    auto chat_component = chat_view_.build();
-    auto input_component = input_bar_.build();
+    chat_component_ = chat_view_.build();
+    input_component_ = input_bar_.build();
     auto status_component = status_bar_.build();
     auto sidebar_component = sidebar_.build();
 
     auto container = Container::Vertical({
-        chat_component,
-        input_component,
+        chat_component_,
+        input_component_,
         sidebar_component,
     });
 
-    auto renderer = Renderer(container, [&, chat_component, input_component, status_component, sidebar_component]() {
-        auto chat_elem = chat_component->Render() | flex;
-        auto input_elem = input_component->Render();
+    auto renderer = Renderer(container, [this, status_component, sidebar_component]() {
+        auto chat_elem = chat_component_->Render() | flex;
+        auto input_elem = input_component_->Render();
         auto status_elem = status_component->Render();
         auto sidebar_elem = sidebar_component->Render();
         auto separator_color = Color::GrayDark;
@@ -70,7 +70,7 @@ void TuiApp::run()
     input_bar_.focus();
 
     main_component_ = CatchEvent(renderer, [this](Event event) {
-        if (event == Event::F5) {
+        if (event == Event::F5 || event == Event::Escape) {
             if (on_escape_) {
                 on_escape_();
             }
@@ -87,10 +87,28 @@ void TuiApp::run()
             chat_view_.set_scroll_to_bottom(true);
             return true;
         }
+        if (event == Event::Custom) {
+            bool typing = status_bar_.is_typing();
+            if (typing != last_typing_state_) {
+                if (typing) {
+                    chat_view_.focus();
+                } else {
+                    input_bar_.focus();
+                }
+                last_typing_state_ = typing;
+            }
+            return false;
+        }
         return false;
     });
 
     screen_.Loop(main_component_);
+}
+
+void TuiApp::set_typing_state(bool typing)
+{
+    status_bar_.set_typing(typing);
+    request_refresh();
 }
 
 void TuiApp::stop()

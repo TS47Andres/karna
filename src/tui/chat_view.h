@@ -23,11 +23,14 @@ public:
     void clear();
     void set_on_scroll_to_bottom(std::function<void()> cb);
     void set_scroll_to_bottom(bool scroll);
+    void focus();
 
 private:
+    ftxui::Component component_;
     struct DisplayMessage {
         MessageRole role;
         std::string content;
+        std::string name;
     };
 
     std::vector<DisplayMessage> messages_;

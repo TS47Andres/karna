@@ -9,7 +9,7 @@ ChatView::ChatView()
 Component ChatView::build()
 {
     auto renderer = Renderer([this] { return render(); });
-    return CatchEvent(renderer, [this](Event event) {
+    component_ = CatchEvent(renderer, [this](Event event) {
         if (event.is_mouse()) {
             if (event.mouse().button == Mouse::WheelUp) {
                 scroll_to_bottom_ = false;
@@ -26,6 +26,14 @@ Component ChatView::build()
         }
         return false;
     });
+    return component_;
+}
+
+void ChatView::focus()
+{
+    if (component_) {
+        component_->TakeFocus();
+    }
 }
 
 void ChatView::add_message(const Message& msg)
@@ -35,7 +43,8 @@ void ChatView::add_message(const Message& msg)
     for (const auto& tc : msg.tool_calls) {
         content += "\n[Tool call: " + tc.function_name + "]";
     }
-    messages_.push_back({msg.role, content});
+    std::string name = msg.name ? *msg.name : "";
+    messages_.push_back({msg.role, content, name});
 }
 
 void ChatView::append_to_last(const std::string& content)
@@ -164,21 +173,23 @@ Element ChatView::render_message(const DisplayMessage& msg) const
     }
 
     if (msg.role == MessageRole::Tool) {
+        std::string tool_header = " [Tool: " + (msg.name.empty() ? "unknown" : msg.name) + "] ";
         Elements elements;
         std::stringstream ss(msg.content);
         std::string line;
-        bool is_first = true;
         while (std::getline(ss, line)) {
-            std::string prefix_line = is_first ? (" ⚙ " + line) : ("   " + line);
-            is_first = false;
             if (line.empty()) {
                 elements.push_back(text(""));
             } else {
-                elements.push_back(paragraph(prefix_line) | flex);
+                elements.push_back(paragraph(" " + line) | flex);
             }
         }
         return vbox({
-            vbox(std::move(elements)) | color(Color::GrayLight) | dim,
+            vbox({
+                text(tool_header) | bold | color(Color::White),
+                separator() | color(Color::GrayDark),
+                vbox(std::move(elements)) | color(Color::GrayLight) | dim,
+            }) | borderRounded | color(Color::GrayDark),
             text(""),
         });
     }
@@ -241,7 +252,7 @@ Element ChatView::render()
     }
 
     if (scroll_to_bottom_ && !children.empty()) {
-        children.back() = children.back() | focus;
+        children.back() = children.back() | ftxui::focus;
     }
 
     return vbox(std::move(children)) | vscroll_indicator | yframe;

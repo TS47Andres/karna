@@ -78,15 +78,17 @@ void Controller::run_chat(const std::string& initial_prompt)
     setup_provider();
     build_tools_json();
 
+    auto project_ctx = ProjectContext::discover();
+
     tui_ = std::make_unique<TuiApp>();
 
-    tui_->sidebar().set_project_context(ProjectContext::discover());
+    tui_->sidebar().set_project_context(project_ctx);
     tui_->sidebar().set_model(session_.model());
     tui_->sidebar().set_token_count(0, 0);
 
     tui_->status_bar().set_model(session_.model());
     tui_->status_bar().set_status("Ready");
-    tui_->status_bar().set_typing(false);
+    tui_->set_typing_state(false);
 
     tui_->chat_view().show_system_message(
         "Karna v0.1.0 | Model: " + session_.model() +
@@ -159,8 +161,7 @@ void Controller::handle_normal_message(const std::string& text)
     stream_finish_reason_ = FinishReason::Unknown;
 
     tui_->status_bar().set_status("Thinking...");
-    tui_->status_bar().set_typing(true);
-    tui_->request_refresh();
+    tui_->set_typing_state(true);
 
     send_to_provider();
 }
@@ -214,8 +215,7 @@ void Controller::on_stream_error(const std::string& error)
         tui_->chat_view().show_system_message("Error: " + error);
     }
     tui_->status_bar().set_status(abort_pending_.load() ? "Aborted" : "Error");
-    tui_->status_bar().set_typing(false);
-    tui_->request_refresh();
+    tui_->set_typing_state(false);
     processing_.store(false);
     abort_pending_.store(false);
 }
@@ -250,13 +250,11 @@ void Controller::on_stream_done(Usage usage)
         // Restore into member for execute_tool_calls_and_continue
         stream_tool_calls_ = std::move(tool_calls_to_process);
         tui_->status_bar().set_status("Running tools...");
-        tui_->status_bar().set_typing(true);
-        tui_->request_refresh();
+        tui_->set_typing_state(true);
         execute_tool_calls_and_continue();
     } else {
         tui_->status_bar().set_status("Ready");
-        tui_->status_bar().set_typing(false);
-        tui_->request_refresh();
+        tui_->set_typing_state(false);
         processing_.store(false);
     }
 }
@@ -316,15 +314,17 @@ void Controller::execute_tool_calls_and_continue()
     stream_finish_reason_ = FinishReason::Unknown;
 
     tui_->status_bar().set_status("Thinking...");
-    tui_->status_bar().set_typing(true);
-    tui_->request_refresh();
+    tui_->set_typing_state(true);
 
     send_to_provider();
 }
 
 void Controller::handle_escape_key()
 {
-    if (!processing_.load()) return;
+    if (!processing_.load()) {
+        tui_->stop();
+        return;
+    }
 
     if (abort_pending_.load()) {
         // Second press: actually abort
@@ -340,7 +340,7 @@ void Controller::handle_escape_key()
         // First press: show pending
         abort_pending_.store(true);
         last_abort_press_ = std::chrono::steady_clock::now();
-        tui_->status_bar().set_status("Press F5 again to abort");
+        tui_->status_bar().set_status("Press F5/Esc again to abort");
         tui_->request_refresh();
     }
 }

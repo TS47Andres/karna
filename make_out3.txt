@@ -1,0 +1,24 @@
+mingw32-make: Entering directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+mingw32-make[1]: Entering directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+mingw32-make[2]: Entering directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+mingw32-make[2]: Leaving directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+[  6%] Built target spdlog
+mingw32-make[2]: Entering directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+mingw32-make[2]: Leaving directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+[ 12%] Built target screen
+mingw32-make[2]: Entering directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+mingw32-make[2]: Leaving directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+[ 41%] Built target dom
+mingw32-make[2]: Entering directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+mingw32-make[2]: Leaving directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+mingw32-make[2]: Entering directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+[ 41%] Building CXX object _deps/ftxui-build/CMakeFiles/component.dir/src/ftxui/component/input.cpp.obj
+_deps\ftxui-build\CMakeFiles\component.dir\build.make:243: recipe for target '_deps/ftxui-build/CMakeFiles/component.dir/src/ftxui/component/input.cpp.obj' failed
+mingw32-make[2]: *** [_deps/ftxui-build/CMakeFiles/component.dir/src/ftxui/component/input.cpp.obj] Error 1
+mingw32-make[2]: Leaving directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+CMakeFiles\Makefile2:526: recipe for target '_deps/ftxui-build/CMakeFiles/component.dir/all' failed
+mingw32-make[1]: *** [_deps/ftxui-build/CMakeFiles/component.dir/all] Error 2
+mingw32-make[1]: Leaving directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'
+Makefile:154: recipe for target 'all' failed
+mingw32-make: *** [all] Error 2
+mingw32-make: Leaving directory 'C:/Users/aksha/OneDrive/Desktop/MIGA/Karna/build'

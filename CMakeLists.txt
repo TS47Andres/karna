@@ -27,12 +27,21 @@ FetchContent_MakeAvailable(ftxui)
 set(_ftxui_input "${ftxui_SOURCE_DIR}/src/ftxui/component/input.cpp")
 if(EXISTS "${_ftxui_input}")
   file(READ "${_ftxui_input}" _input_src)
-  string(REPLACE "focusCursorBarBlinking" "focusCursorBlockBlinking" _input_src "${_input_src}")
-  string(REPLACE "      element |= focus;" "      element |= focusCursorBlockBlinking;" _input_src "${_input_src}")
-  string(REPLACE "(is_focused || hovered_)" "is_focused" _input_src "${_input_src}")
+  string(REPLACE "(is_focused || hovered_) ? focusCursorBarBlinking : select" "is_focused ? ftxui::focusCursorBlockBlinking : ftxui::select" _input_src "${_input_src}")
+  string(REPLACE "      element |= focus;" "      element = ftxui::focusCursorBlockBlinking(std::move(element));" _input_src "${_input_src}")
   file(WRITE "${_ftxui_input}" "${_input_src}")
 endif()
 unset(_ftxui_input)
+
+# Patch FTXUI screen component:
+# Disable DECMode::kMouseAnyEvent to prevent flooding mouse move events and cursor flickering
+set(_ftxui_screen "${ftxui_SOURCE_DIR}/src/ftxui/component/screen_interactive.cpp")
+if(EXISTS "${_ftxui_screen}")
+  file(READ "${_ftxui_screen}" _screen_src)
+  string(REPLACE "enable({DECMode::kMouseAnyEvent});" "// enable({DECMode::kMouseAnyEvent});" _screen_src "${_screen_src}")
+  file(WRITE "${_ftxui_screen}" "${_screen_src}")
+endif()
+unset(_ftxui_screen)
 
 FetchContent_Declare(
   CLI11
@@ -77,6 +86,15 @@ if(KARNA_BUILD_TESTS)
     GIT_TAG v3.7.0
   )
   FetchContent_MakeAvailable(Catch2)
+
+  FetchContent_Declare(
+    googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG v1.14.0
+  )
+  # Prevent gtest from overriding our compiler settings on Windows
+  set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(googletest)
 endif()
 
 set(LIB_SOURCES

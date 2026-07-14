@@ -1,12 +1,14 @@
 #include "providers/openrouter.h"
 #include "core/system_prompt.h"
 #include "token/counter.h"
+#include "project/context.h"
 
 #include <curl/curl.h>
 #include <thread>
 #include <sstream>
 #include <iostream>
 #include <map>
+#include <filesystem>
 
 struct OpenRouterProvider::WriteCtx {
     std::string buffer;
@@ -83,9 +85,17 @@ json OpenRouterProvider::build_request_body(
 
     json messages = json::array();
 
+    std::string sys_prompt = karna::SYSTEM_PROMPT;
+    auto proj_ctx = ProjectContext::discover();
+    sys_prompt += "\n\n# Active Project Context\n";
+    sys_prompt += "- Root Path: " + std::filesystem::current_path().string() + "\n";
+    if (proj_ctx.has_git) {
+        sys_prompt += "- Git Branch: " + proj_ctx.git_branch + "\n";
+    }
+
     json sys_msg;
     sys_msg["role"] = "system";
-    sys_msg["content"] = karna::SYSTEM_PROMPT;
+    sys_msg["content"] = sys_prompt;
     messages.push_back(sys_msg);
 
     for (const auto& msg : history) {
@@ -284,7 +294,8 @@ void OpenRouterProvider::send(
         ctx.on_delta = &on_delta;
         ctx.on_error = &on_error;
 
-        curl_easy_setopt(curl, CURLOPT_URL, (config_.base_url + "/chat/completions").c_str());
+        std::string url = config_.base_url + "/chat/completions";
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body_str.c_str());
         curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(body_str.size()));

@@ -47,5 +47,5 @@ ToolResult WriteTool::execute(const json& params)
     file << content;
     file.close();
 
-    return ToolResult::ok("Successfully wrote " + std::to_string(content.size()) + " bytes to " + path);
+    return ToolResult::ok("Successfully wrote " + std::to_string(content.size()) + " bytes to " + fs::absolute(path).string());
 }
