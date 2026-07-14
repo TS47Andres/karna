@@ -38,6 +38,7 @@ private:
     std::atomic<bool> processing_{false};
     std::atomic<bool> abort_pending_{false};
     std::atomic<bool> tool_cancel_requested_{false};
+    std::atomic<bool> tool_execution_active_{false};
     std::chrono::steady_clock::time_point last_abort_press_;
 
     json tools_json_;

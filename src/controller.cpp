@@ -25,6 +25,7 @@ Controller::Controller()
 
 Controller::~Controller()
 {
+    tool_cancel_requested_.store(true);
     {
         std::lock_guard<std::mutex> lock(tool_worker_mutex_);
         if (tool_worker_.joinable()) {
@@ -325,6 +326,7 @@ void Controller::execute_tool_calls_and_continue(std::map<int, ToolCall> tool_ca
     // also prevents a tool callback from re-entering the provider lifecycle.
     tui_->status_bar().set_status("Running tools...");
     tui_->set_typing_state(true);
+    tool_execution_active_.store(true);
 
     try {
         std::lock_guard<std::mutex> lock(tool_worker_mutex_);
@@ -437,6 +439,7 @@ void Controller::execute_tool_calls_and_continue(std::map<int, ToolCall> tool_ca
             }
         });
     } catch (const std::exception& e) {
+        tool_execution_active_.store(false);
         tui_->chat_view().show_system_message("Tool execution failed: " + std::string(e.what()));
         tui_->status_bar().set_status("Error");
         tui_->set_typing_state(false);
@@ -449,6 +452,7 @@ void Controller::handle_async_failure(const std::string& error) noexcept
     processing_.store(false);
     abort_pending_.store(false);
     tool_cancel_requested_.store(false);
+    tool_execution_active_.store(false);
     try {
         if (auto* provider = session_.provider()) {
             provider->abort();
@@ -465,6 +469,7 @@ void Controller::handle_async_failure(const std::string& error) noexcept
 void Controller::finish_tool_execution(std::vector<ToolExecutionResult> results)
 {
     const bool cancelled = tool_cancel_requested_.load();
+    tool_execution_active_.store(false);
 
     for (const auto& execution : results) {
         const auto& tc = execution.call;
@@ -551,6 +556,10 @@ void Controller::handle_escape_key()
         return;
     }
 
+    if (tool_cancel_requested_.load()) {
+        return;
+    }
+
     if (abort_pending_.load()) {
         // Second press: actually abort
         tool_cancel_requested_.store(true);
@@ -561,7 +570,11 @@ void Controller::handle_escape_key()
         tui_->status_bar().set_status("Aborting...");
         tui_->request_refresh();
         abort_pending_.store(false);
-        processing_.store(false);
+        // Keep processing_ true until the provider/tool worker posts its
+        // completion. This prevents a new request from racing stale callbacks.
+        if (!tool_execution_active_.load()) {
+            tui_->set_typing_state(true);
+        }
     } else {
         // First press: show pending
         abort_pending_.store(true);

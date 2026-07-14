@@ -89,6 +89,18 @@ struct CurlHandleDeleter {
     }
 };
 
+int abort_progress_callback(
+    void* clientp,
+    curl_off_t,
+    curl_off_t,
+    curl_off_t,
+    curl_off_t
+) noexcept
+{
+    auto* abort_flag = static_cast<std::atomic<bool>*>(clientp);
+    return abort_flag && abort_flag->load() ? 1 : 0;
+}
+
 class CurlHeaders {
 public:
     ~CurlHeaders()
@@ -152,6 +164,7 @@ std::string OpenRouterProvider::model() const
 
 void OpenRouterProvider::set_model(const std::string& model)
 {
+    abort();
     model_ = model;
     auto models = fetch_models();
     int context_window = 0;
@@ -169,6 +182,7 @@ void OpenRouterProvider::set_model(const std::string& model)
 
 void OpenRouterProvider::set_api_key(const std::string& api_key)
 {
+    abort();
     config_.api_key = api_key;
     std::lock_guard<std::mutex> lock(metadata_mutex_);
     model_catalog_.clear();
@@ -211,6 +225,14 @@ void OpenRouterProvider::set_max_tokens(int max)
 void OpenRouterProvider::abort()
 {
     abort_.store(true);
+
+    std::lock_guard<std::mutex> lock(worker_mutex_);
+    if (worker_.joinable() && worker_.get_id() != std::this_thread::get_id()) {
+        // CURLOPT_WRITEFUNCTION observes abort_ and returns immediately. Join
+        // here so callers cannot start another request or destroy the provider
+        // while the old worker still owns CURL callback state.
+        worker_.join();
+    }
 }
 
 std::string OpenRouterProvider::role_to_string(MessageRole role) const
@@ -494,12 +516,15 @@ void OpenRouterProvider::send(
                 curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDSIZE, static_cast<long>(body_str.size()));
                 curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, write_callback);
                 curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &ctx);
+                curl_easy_setopt(curl.get(), CURLOPT_XFERINFOFUNCTION, abort_progress_callback);
+                curl_easy_setopt(curl.get(), CURLOPT_XFERINFODATA, &abort_);
+                curl_easy_setopt(curl.get(), CURLOPT_NOPROGRESS, 0L);
                 curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 300L);
                 curl_easy_setopt(curl.get(), CURLOPT_SSL_VERIFYPEER, 1L);
                 curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, "karna/0.1.0");
 
                 const CURLcode result = curl_easy_perform(curl.get());
-                if (result != CURLE_OK) {
+                if (result != CURLE_OK || abort_.load()) {
                     if (abort_.load()) {
                         notify_error(on_error, "Request aborted");
                     } else {
