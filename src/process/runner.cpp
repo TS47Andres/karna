@@ -14,11 +14,13 @@
 #include <chrono>
 #include <cstdio>
 #include <memory>
+#include <algorithm>
 
 ProcessResult ProcessRunner::run(
     const std::string& command,
     const std::string& working_dir,
-    int timeout_ms)
+    int timeout_ms,
+    std::function<void(const std::string&)> on_output)
 {
     ProcessResult result;
 
@@ -68,29 +70,53 @@ ProcessResult ProcessRunner::run(
     CloseHandle(hStdoutWrite);
     CloseHandle(hStderrWrite);
 
-    DWORD wait_result = WaitForSingleObject(pi.hProcess, timeout_ms);
+    const auto read_available = [&](HANDLE pipe, std::string& target) {
+        char buf[4096];
+        DWORD available = 0;
+        while (PeekNamedPipe(pipe, nullptr, 0, nullptr, &available, nullptr) && available > 0) {
+            DWORD bytes_read = 0;
+            const DWORD request = (std::min)(available, static_cast<DWORD>(sizeof(buf) - 1));
+            if (!ReadFile(pipe, buf, request, &bytes_read, nullptr) || bytes_read == 0) {
+                break;
+            }
+            buf[bytes_read] = '\0';
+            std::string chunk(buf, bytes_read);
+            target += chunk;
+            if (on_output) {
+                on_output(chunk);
+            }
+        }
+    };
 
-    if (wait_result == WAIT_TIMEOUT) {
-        TerminateProcess(pi.hProcess, 1);
-        result.timed_out = true;
+    const auto start_time = std::chrono::steady_clock::now();
+    bool process_done = false;
+    while (!process_done) {
+        read_available(hStdoutRead, result.stdout_str);
+        read_available(hStderrRead, result.stderr_str);
+
+        const DWORD wait_result = WaitForSingleObject(pi.hProcess, 0);
+        if (wait_result == WAIT_OBJECT_0) {
+            process_done = true;
+        } else {
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - start_time).count();
+            if (timeout_ms >= 0 && elapsed >= timeout_ms) {
+                TerminateProcess(pi.hProcess, 1);
+                result.timed_out = true;
+                WaitForSingleObject(pi.hProcess, INFINITE);
+                process_done = true;
+            } else {
+                Sleep(50);
+            }
+        }
     }
+
+    read_available(hStdoutRead, result.stdout_str);
+    read_available(hStderrRead, result.stderr_str);
 
     DWORD exit_code = 0;
     GetExitCodeProcess(pi.hProcess, &exit_code);
     result.exit_code = static_cast<int>(exit_code);
-
-    char buf[4096];
-    DWORD bytes_read;
-
-    while (ReadFile(hStdoutRead, buf, sizeof(buf) - 1, &bytes_read, nullptr) && bytes_read > 0) {
-        buf[bytes_read] = '\0';
-        result.stdout_str += buf;
-    }
-
-    while (ReadFile(hStderrRead, buf, sizeof(buf) - 1, &bytes_read, nullptr) && bytes_read > 0) {
-        buf[bytes_read] = '\0';
-        result.stderr_str += buf;
-    }
 
     CloseHandle(hStdoutRead);
     CloseHandle(hStderrRead);
@@ -154,7 +180,9 @@ ProcessResult ProcessRunner::run(
                 n = read(stdout_pipe[0], buf, sizeof(buf) - 1);
                 if (n > 0) {
                     buf[n] = '\0';
-                    result.stdout_str += buf;
+                    std::string chunk(buf, static_cast<size_t>(n));
+                    result.stdout_str += chunk;
+                    if (on_output) on_output(chunk);
                 }
             }
 
@@ -162,7 +190,9 @@ ProcessResult ProcessRunner::run(
                 n = read(stderr_pipe[0], buf, sizeof(buf) - 1);
                 if (n > 0) {
                     buf[n] = '\0';
-                    result.stderr_str += buf;
+                    std::string chunk(buf, static_cast<size_t>(n));
+                    result.stderr_str += chunk;
+                    if (on_output) on_output(chunk);
                 }
             }
         }
@@ -179,7 +209,8 @@ ProcessResult ProcessRunner::run(
         }
 
         auto elapsed = std::chrono::steady_clock::now() - start_time;
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() >= timeout_ms) {
+        if (timeout_ms >= 0 &&
+            std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() >= timeout_ms) {
             kill(pid, SIGTERM);
             result.timed_out = true;
         }

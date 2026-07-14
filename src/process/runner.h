@@ -2,6 +2,7 @@
 
 #include <string>
 #include <vector>
+#include <functional>
 
 struct ProcessResult {
     std::string stdout_str;
@@ -15,6 +16,7 @@ public:
     static ProcessResult run(
         const std::string& command,
         const std::string& working_dir = "",
-        int timeout_ms = 30000
+        int timeout_ms = 30000,
+        std::function<void(const std::string&)> on_output = {}
     );
 };

@@ -4,11 +4,13 @@
 #include "tools/read.h"
 #include "tools/write.h"
 #include "tools/edit.h"
+#include "tools/run.h"
 #include "tools/glob.h"
 #include "tools/grep.h"
 
 #include <filesystem>
 #include <fstream>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -60,4 +62,19 @@ TEST_CASE("EditTool replaces text", "[tools]")
     }
 
     fs::remove_all("test_tmp");
+}
+
+TEST_CASE("BashTool streams output and reports timeout metadata", "[tools]")
+{
+    RunTool tool;
+    std::vector<std::string> chunks;
+    auto result = tool.execute_stream(
+        json::parse(R"({"command": "echo streamed"})"),
+        [&chunks](const std::string& chunk) { chunks.push_back(chunk); });
+
+    REQUIRE(tool.name() == "bash");
+    REQUIRE(result.success);
+    REQUIRE(result.data["timeout_set"] == false);
+    REQUIRE_FALSE(chunks.empty());
+    REQUIRE_THAT(result.output, Catch::Matchers::ContainsSubstring("streamed"));
 }

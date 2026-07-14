@@ -4,6 +4,20 @@
 
 using namespace ftxui;
 
+namespace {
+
+std::vector<std::string> split_lines(const std::string& content)
+{
+    std::vector<std::string> lines;
+    if (content.empty()) return lines;
+    std::stringstream stream(content);
+    std::string line;
+    while (std::getline(stream, line)) lines.push_back(line);
+    return lines;
+}
+
+} // namespace
+
 ChatView::ChatView()
 {}
 
@@ -92,16 +106,99 @@ void ChatView::show_system_message(const std::string& msg)
 void ChatView::show_tool_activity(const std::string& label)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    messages_.push_back({MessageRole::Tool, label, "", ToolDisplay::Activity});
+    DisplayMessage message;
+    message.role = MessageRole::Tool;
+    message.content = label;
+    message.tool_display = ToolDisplay::Activity;
+    messages_.push_back(std::move(message));
 }
 
 void ChatView::show_tool_diff(
+    const std::string& tool_name,
     const std::string& path,
     const std::string& before,
     const std::string& after)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    messages_.push_back({MessageRole::Tool, path, "", ToolDisplay::Diff, before, after});
+    DisplayMessage message;
+    message.role = MessageRole::Tool;
+    message.content = path;
+    message.tool_name = tool_name;
+    message.tool_parameter = path;
+    const auto before_lines = split_lines(before);
+    const auto after_lines = split_lines(after);
+    size_t prefix = 0;
+    while (prefix < before_lines.size() && prefix < after_lines.size() &&
+           before_lines[prefix] == after_lines[prefix]) {
+        ++prefix;
+    }
+    size_t suffix = 0;
+    while (suffix < before_lines.size() - prefix && suffix < after_lines.size() - prefix &&
+           before_lines[before_lines.size() - 1 - suffix] ==
+               after_lines[after_lines.size() - 1 - suffix]) {
+        ++suffix;
+    }
+    message.added_lines = static_cast<int>(after_lines.size() - prefix - suffix);
+    message.deleted_lines = static_cast<int>(before_lines.size() - prefix - suffix);
+    message.tool_extra = "+" + std::to_string(message.added_lines) +
+        " -" + std::to_string(message.deleted_lines);
+    message.tool_display = ToolDisplay::Diff;
+    message.before = before;
+    message.after = after;
+    messages_.push_back(std::move(message));
+}
+
+void ChatView::show_bash_started(
+    const std::string& key,
+    const std::string& command,
+    const std::string& timeout_label)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    DisplayMessage message;
+    message.role = MessageRole::Tool;
+    message.tool_name = "bash";
+    message.tool_parameter = command;
+    message.tool_extra = timeout_label;
+    message.display_key = key;
+    message.tool_display = ToolDisplay::Bash;
+    message.bash_running = true;
+    messages_.push_back(std::move(message));
+}
+
+void ChatView::append_bash_output(const std::string& key, const std::string& output)
+{
+    if (output.empty()) return;
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto it = messages_.rbegin(); it != messages_.rend(); ++it) {
+        if (it->tool_display == ToolDisplay::Bash && it->display_key == key) {
+            it->content += output;
+            return;
+        }
+    }
+}
+
+void ChatView::finish_bash(const std::string& key, const std::string& output, bool success)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto it = messages_.rbegin(); it != messages_.rend(); ++it) {
+        if (it->tool_display == ToolDisplay::Bash && it->display_key == key) {
+            it->content = output;
+            it->bash_running = false;
+            it->bash_success = success;
+            return;
+        }
+    }
+}
+
+void ChatView::toggle_bash_view()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto it = messages_.rbegin(); it != messages_.rend(); ++it) {
+        if (it->tool_display == ToolDisplay::Bash) {
+            it->bash_expanded = !it->bash_expanded;
+            return;
+        }
+    }
 }
 
 void ChatView::set_model(const std::string& model)
@@ -195,6 +292,7 @@ Element ChatView::render_message(const DisplayMessage& msg) const
     }
 
     if (msg.role == MessageRole::Tool && msg.tool_display == ToolDisplay::Activity) {
+        return text("-> " + msg.content) | color(Color::GrayDark) | dim;
         return vbox({
             text("→ " + msg.content) | color(Color::GrayDark) | dim,
             text(""),
@@ -203,6 +301,10 @@ Element ChatView::render_message(const DisplayMessage& msg) const
 
     if (msg.role == MessageRole::Tool && msg.tool_display == ToolDisplay::Diff) {
         return render_tool_diff(msg);
+    }
+
+    if (msg.role == MessageRole::Tool && msg.tool_display == ToolDisplay::Bash) {
+        return render_bash(msg);
     }
 
     if (msg.role == MessageRole::Tool) {
@@ -223,7 +325,6 @@ Element ChatView::render_message(const DisplayMessage& msg) const
                 separator() | color(Color::GrayDark),
                 vbox(std::move(elements)) | color(Color::GrayLight) | dim,
             }) | borderRounded | color(Color::GrayDark),
-            text(""),
         });
     }
 
@@ -240,19 +341,6 @@ Element ChatView::render_message(const DisplayMessage& msg) const
 
 Element ChatView::render_tool_diff(const DisplayMessage& msg) const
 {
-    const auto split_lines = [](const std::string& content) {
-        std::vector<std::string> lines;
-        std::stringstream stream(content);
-        std::string line;
-        while (std::getline(stream, line)) {
-            lines.push_back(line);
-        }
-        if (!content.empty() && content.back() == '\n') {
-            lines.push_back("");
-        }
-        return lines;
-    };
-
     const auto before = split_lines(msg.before);
     const auto after = split_lines(msg.after);
 
@@ -313,14 +401,56 @@ Element ChatView::render_tool_diff(const DisplayMessage& msg) const
 
     return vbox({
         hbox({
-            text(" " + msg.content + " ") | bold | color(Color::White),
+            text(" " + msg.tool_name + " : " + msg.tool_parameter + " : " + msg.tool_extra + " ") |
+                bold | color(Color::White),
             filler(),
             text(" diff ") | color(Color::GrayDark) | dim,
         }),
         separator() | color(Color::GrayDark),
         vbox(std::move(lines)),
-        text(""),
     }) | borderRounded | color(Color::GrayDark);
+}
+
+Element ChatView::render_bash(const DisplayMessage& msg) const
+{
+    Elements output_lines;
+    const auto lines = split_lines(msg.content);
+    const size_t visible_lines = 5;
+    const bool clipped = !msg.bash_expanded && lines.size() > visible_lines;
+    const size_t first_line = clipped ? lines.size() - visible_lines : 0;
+
+    if (clipped) {
+        output_lines.push_back(
+            text("... " + std::to_string(lines.size() - visible_lines) +
+                 " earlier lines hidden - Ctrl+T to expand") | color(Color::GrayDark) | dim);
+    }
+    for (size_t index = first_line; index < lines.size(); ++index) {
+        output_lines.push_back(paragraph(lines[index]) | color(Color::GrayLight));
+    }
+    if (output_lines.empty()) {
+        output_lines.push_back(
+            text(msg.bash_running ? "waiting for output..." : "(no output)") |
+                color(Color::GrayDark) | dim);
+    }
+
+    const std::string state = msg.bash_running ? " - running" :
+        (msg.bash_success ? " - done" : " - failed");
+    auto header = hbox({
+        text(" " + msg.tool_name + " : ") | bold | color(Color::White),
+        paragraph(msg.tool_parameter) | color(Color::White) | flex,
+        text(" : " + msg.tool_extra + state + " ") | color(Color::GrayDark),
+    });
+
+    auto panel = vbox({
+        header,
+        separator() | color(Color::GrayDark),
+        vbox(std::move(output_lines)) | yframe,
+    });
+    if (!msg.bash_expanded) {
+        panel = panel | size(HEIGHT, EQUAL, 8);
+    }
+
+    return panel | borderRounded | color(Color::GrayDark);
 }
 
 namespace {

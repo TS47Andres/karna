@@ -116,6 +116,7 @@ Element Sidebar::render()
     keys_elements.push_back(key_line("Esc/F5", "Abort/Exit"));
     keys_elements.push_back(key_line("/clear", "Clear chat"));
     keys_elements.push_back(key_line("/help", "List cmds"));
+    keys_elements.push_back(key_line("Ctrl+T", "Expand bash"));
 
     return vbox({
         vbox(std::move(project_elements)) | borderRounded | color_dim,

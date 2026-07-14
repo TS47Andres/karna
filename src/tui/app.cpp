@@ -83,6 +83,10 @@ void TuiApp::run()
         if (event == Event::Tab || event == Event::TabReverse) {
             return true; // Consume Tab to prevent focus loss
         }
+        if (event == Event::Character('\x14') && input_bar_.get_text().empty()) {
+            chat_view_.toggle_bash_view();
+            return true;
+        }
         if (event.is_mouse()) {
             if (event.mouse().button == Mouse::WheelUp) {
                 chat_view_.scroll_by(-0.08f);

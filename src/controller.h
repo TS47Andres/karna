@@ -53,6 +53,7 @@ private:
         bool success{false};
         json arguments{json::object()};
         json data{json::object()};
+        std::string display_key;
     };
     std::mutex tool_worker_mutex_;
     std::thread tool_worker_;

@@ -353,9 +353,32 @@ void Controller::execute_tool_calls_and_continue(std::map<int, ToolCall> tool_ca
                     } else {
                         try {
                             json args = json::parse(tc.arguments);
-                            ToolResult result = tool->execute(args);
+                            execution.arguments = args;
+
+                            ToolOutputCallback on_output;
+                            if (tc.function_name == "bash") {
+                                execution.display_key = tc.id.empty()
+                                    ? "bash-" + std::to_string(idx)
+                                    : tc.id;
+                                const int timeout = args.value("timeout", -1);
+                                const std::string timeout_label = args.contains("timeout")
+                                    ? std::to_string(timeout) + "ms"
+                                    : "Infinity";
+                                const std::string key = execution.display_key;
+                                const std::string command = args.value("command", "");
+                                tui_->post([this, key, command, timeout_label]() {
+                                    tui_->chat_view().show_bash_started(key, command, timeout_label);
+                                });
+                                on_output = [this, key](const std::string& output) {
+                                    if (output.empty()) return;
+                                    tui_->post([this, key, output]() {
+                                        tui_->chat_view().append_bash_output(key, output);
+                                    });
+                                };
+                            }
+
+                            ToolResult result = tool->execute_stream(args, std::move(on_output));
                             execution.success = result.success;
-                            execution.arguments = std::move(args);
                             execution.output = std::move(result.output);
                             execution.data = std::move(result.data);
                         } catch (const json::exception& e) {
@@ -451,11 +474,20 @@ void Controller::finish_tool_execution(std::vector<ToolExecutionResult> results)
                 }
             }
             tui_->chat_view().show_tool_activity(summary);
+        } else if (tc.function_name == "bash") {
+            if (!execution.display_key.empty()) {
+                tui_->chat_view().finish_bash(
+                    execution.display_key, execution.output, execution.success);
+            } else {
+                tui_->chat_view().show_system_message(
+                    "bash : command : Infinity : " + execution.output);
+            }
         } else if ((tc.function_name == "write" || tc.function_name == "edit") &&
                    execution.success && execution.data.is_object() &&
                    execution.data.contains("path") && execution.data.contains("before") &&
                    execution.data.contains("after")) {
             tui_->chat_view().show_tool_diff(
+                tc.function_name,
                 execution.data.value("path", tc.function_name),
                 execution.data.value("before", ""),
                 execution.data.value("after", ""));
