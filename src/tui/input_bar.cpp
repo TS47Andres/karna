@@ -1,8 +1,10 @@
 #include "tui/input_bar.h"
 #include "core/command.h"
+#include "core/provider.h"
 #include <ftxui/component/component_options.hpp>
 #include <algorithm>
 #include <cctype>
+#include <string_view>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -88,6 +90,18 @@ Component InputBar::build()
             show_suggestions_ = false;
             return;
         }
+
+        constexpr std::string_view model_command = "/model";
+        if (text.size() >= model_command.size() &&
+            text.compare(0, model_command.size(), model_command) == 0 &&
+            (text.size() == model_command.size() || std::isspace(static_cast<unsigned char>(text[model_command.size()])))) {
+            size_t query_start = model_command.size();
+            while (query_start < text.size() && std::isspace(static_cast<unsigned char>(text[query_start]))) {
+                ++query_start;
+            }
+            update_model_suggestions(text.substr(query_start));
+            return;
+        }
         update_suggestions(text.substr(1));
     };
 
@@ -171,7 +185,10 @@ Component InputBar::build()
         if (event == Event::Return) {
             std::string text = *input_content_;
             if (!text.empty()) {
-                history_.push_back(text);
+                bool sensitive = text.rfind("/connect ", 0) == 0 || text.rfind("/setup ", 0) == 0;
+                if (!sensitive) {
+                    history_.push_back(text);
+                }
                 history_index_ = -1;
                 if (on_submit_) on_submit_(text);
             }
@@ -206,7 +223,7 @@ void InputBar::update_suggestions(const std::string& query)
         for (auto c : cmd->name()) cmd_lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
         if (cmd_lower.find(lower_query) == 0) {
-            suggestions_.push_back({cmd->name(), cmd->description()});
+            suggestions_.push_back({cmd->name(), cmd->description(), false});
             if (static_cast<int>(suggestions_.size()) >= 5) break;
         }
     }
@@ -217,11 +234,45 @@ void InputBar::update_suggestions(const std::string& query)
     }
 }
 
+void InputBar::update_model_suggestions(const std::string& query)
+{
+    suggestions_.clear();
+    selected_index_ = -1;
+
+    std::string lower_query;
+    for (auto c : query) {
+        lower_query += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+
+    for (const auto& model : models_) {
+        std::string searchable = model.id + " " + model.name + " " + model.owned_by;
+        std::string lower_searchable;
+        for (auto c : searchable) {
+            lower_searchable += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        if (lower_query.empty() || lower_searchable.find(lower_query) != std::string::npos) {
+            std::string description = model.name.empty() ? model.owned_by : model.name;
+            if (model.context_length > 0) {
+                description += " (" + std::to_string(model.context_length) + " context)";
+            }
+            suggestions_.push_back({model.id, description, true});
+            if (static_cast<int>(suggestions_.size()) >= 8) break;
+        }
+    }
+
+    show_suggestions_ = !suggestions_.empty();
+    if (show_suggestions_) {
+        selected_index_ = 0;
+    }
+}
+
 void InputBar::apply_suggestion()
 {
     if (selected_index_ < 0 || selected_index_ >= static_cast<int>(suggestions_.size())) return;
 
-    *input_content_ = "/" + suggestions_[selected_index_].name + " ";
+    *input_content_ = suggestions_[selected_index_].is_model
+        ? "/model " + suggestions_[selected_index_].name + " "
+        : "/" + suggestions_[selected_index_].name + " ";
     show_suggestions_ = false;
     selected_index_ = -1;
 }
@@ -291,4 +342,17 @@ void InputBar::focus()
 void InputBar::set_command_registry(CommandRegistry* registry)
 {
     command_registry_ = registry;
+}
+
+void InputBar::set_models(const std::vector<ModelInfo>& models)
+{
+    models_ = models;
+    if (input_content_ && input_content_->rfind("/model", 0) == 0) {
+        size_t query_start = 6;
+        while (query_start < input_content_->size() &&
+               std::isspace(static_cast<unsigned char>((*input_content_)[query_start]))) {
+            ++query_start;
+        }
+        update_model_suggestions(input_content_->substr(query_start));
+    }
 }

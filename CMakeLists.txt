@@ -29,6 +29,8 @@ if(EXISTS "${_ftxui_input}")
   file(READ "${_ftxui_input}" _input_src)
   string(REPLACE "(is_focused || hovered_) ? focusCursorBarBlinking : select" "is_focused ? ftxui::focusCursorBlockBlinking : ftxui::select" _input_src "${_input_src}")
   string(REPLACE "      element |= focus;" "      element = ftxui::focusCursorBlockBlinking(std::move(element));" _input_src "${_input_src}")
+  string(REPLACE "    cursor_position() = start;\n    return true;" "    cursor_position() = start;\n    on_change();\n    return true;" _input_src "${_input_src}")
+  string(REPLACE "    content->erase(start, end - start);\n    return true;" "    content->erase(start, end - start);\n    on_change();\n    return true;" _input_src "${_input_src}")
   file(WRITE "${_ftxui_input}" "${_input_src}")
 endif()
 unset(_ftxui_input)
@@ -102,6 +104,7 @@ set(LIB_SOURCES
   src/config/config.cpp
   src/core/session.cpp
   src/providers/openrouter.cpp
+  src/commands/connect.cpp
   src/tools/registry.cpp
   src/tools/read.cpp
   src/tools/write.cpp

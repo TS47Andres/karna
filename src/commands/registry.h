@@ -9,6 +9,7 @@
 #include "commands/cost.h"
 #include "commands/export_cmd.h"
 #include "commands/session_cmd.h"
+#include "commands/connect.h"
 
 class CommandInitializer {
 public:

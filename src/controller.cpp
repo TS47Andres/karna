@@ -51,6 +51,7 @@ void Controller::setup_provider()
 {
     auto provider = std::make_unique<OpenRouterProvider>(config_.openrouter);
     provider->set_model(session_.model());
+    model_catalog_ = provider->available_models();
     session_.set_provider(std::move(provider));
 }
 
@@ -108,6 +109,7 @@ void Controller::run_chat(const std::string& initial_prompt)
     });
 
     tui_->input_bar().set_command_registry(&command_registry_);
+    tui_->input_bar().set_models(model_catalog_);
 
     tui_->set_on_escape([this]() {
         handle_escape_key();
@@ -141,8 +143,21 @@ void Controller::handle_slash_command(const std::string& cmd, const std::string&
 {
     auto* command = command_registry_.find(cmd);
     if (command) {
-        CommandContext ctx{session_, tui_->chat_view(), &command_registry_, &tool_registry_, &skill_registry_, [this]() { tui_->request_refresh(); }};
+        const std::string previous_model = session_.model();
+        CommandContext ctx{
+            session_,
+            tui_->chat_view(),
+            &command_registry_,
+            &tool_registry_,
+            &skill_registry_,
+            [this]() { tui_->request_refresh(); },
+            [this](const std::string& key) { set_api_key(key); }
+        };
         command->execute(args, ctx);
+        if (session_.model() != previous_model) {
+            config_.openrouter.default_model = session_.model();
+            config_.save();
+        }
         tui_->status_bar().set_model(session_.model());
         tui_->sidebar().set_model(session_.model());
         tui_->sidebar().set_context(
@@ -372,4 +387,22 @@ void Controller::reset_abort_pending()
             tui_->request_refresh();
         }
     }
+}
+
+void Controller::set_api_key(const std::string& api_key)
+{
+    config_.openrouter.api_key = api_key;
+    config_.save();
+
+    auto* provider = session_.provider();
+    if (!provider) {
+        return;
+    }
+
+    provider->set_api_key(api_key);
+    provider->set_model(session_.model());
+    model_catalog_ = provider->available_models();
+    tui_->input_bar().set_models(model_catalog_);
+    tui_->sidebar().set_context(session_.context_usage(), provider->context_window());
+    tui_->request_refresh();
 }

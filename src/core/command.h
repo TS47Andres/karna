@@ -18,6 +18,7 @@ struct CommandContext {
     ToolRegistry* tool_registry{nullptr};
     SkillRegistry* skill_registry{nullptr};
     std::function<void()> request_rerender;
+    std::function<void(const std::string&)> set_api_key;
 };
 
 class Command {

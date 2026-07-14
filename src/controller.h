@@ -36,6 +36,7 @@ private:
     std::chrono::steady_clock::time_point last_abort_press_;
 
     json tools_json_;
+    std::vector<ModelInfo> model_catalog_;
 
     // Per-stream accumulators
     std::string stream_content_;
@@ -60,4 +61,5 @@ private:
 
     void handle_escape_key();
     void reset_abort_pending();
+    void set_api_key(const std::string& api_key);
 };

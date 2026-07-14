@@ -34,4 +34,5 @@ struct Config {
 private:
     static Config default_config();
     static std::string config_path();
+    static std::string state_path();
 };

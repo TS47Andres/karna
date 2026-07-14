@@ -11,6 +11,13 @@
 
 using json = nlohmann::json;
 
+struct ModelInfo {
+    std::string id;
+    std::string name;
+    std::string owned_by;
+    int context_length{0};
+};
+
 class Provider {
 public:
     virtual ~Provider() = default;
@@ -28,6 +35,10 @@ public:
     virtual void abort() = 0;
 
     virtual void set_model(const std::string& /*model*/) {}
+
+    virtual void set_api_key(const std::string& /*api_key*/) {}
+
+    virtual std::vector<ModelInfo> available_models() const { return {}; }
 
     virtual int context_window() const { return 0; }
 

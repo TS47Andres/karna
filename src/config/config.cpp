@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <nlohmann/json.hpp>
 
 namespace fs = std::filesystem;
 
@@ -37,10 +38,27 @@ std::string Config::config_path()
 Config Config::load()
 {
     std::string path = config_path();
-    if (fs::exists(path)) {
-        return load_from_file(path);
+    Config cfg = fs::exists(path) ? load_from_file(path) : default_config();
+
+    std::ifstream state_file(state_path());
+    if (state_file) {
+        try {
+            nlohmann::json state;
+            state_file >> state;
+            if (state.contains("openrouter") && state["openrouter"].is_object()) {
+                const auto& openrouter = state["openrouter"];
+                if (openrouter.contains("api_key") && openrouter["api_key"].is_string()) {
+                    cfg.openrouter.api_key = openrouter["api_key"].get<std::string>();
+                }
+                if (openrouter.contains("default_model") && openrouter["default_model"].is_string()) {
+                    cfg.openrouter.default_model = openrouter["default_model"].get<std::string>();
+                }
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "Warning: failed to parse state: " << e.what() << std::endl;
+        }
     }
-    return default_config();
+    return cfg;
 }
 
 Config Config::load_from_file(const std::string& path)
@@ -123,4 +141,22 @@ void Config::save(const std::string& path)
     if (file) {
         file << tbl << std::endl;
     }
+
+    if (path.empty()) {
+        nlohmann::json state = {
+            {"openrouter", {
+                {"api_key", openrouter.api_key},
+                {"default_model", openrouter.default_model}
+            }}
+        };
+        std::ofstream state_file(state_path());
+        if (state_file) {
+            state_file << state.dump(2) << std::endl;
+        }
+    }
+}
+
+std::string Config::state_path()
+{
+    return (fs::path(config_path()).parent_path() / ".karna.json").string();
 }
