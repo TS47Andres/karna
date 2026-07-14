@@ -112,6 +112,7 @@ set(LIB_SOURCES
   src/tools/edit.cpp
   src/tools/run.cpp
   src/tools/search.cpp
+  src/net/curl_setup.cpp
   src/tools/glob.cpp
   src/tools/grep.cpp
   src/skills/registry.cpp
@@ -171,6 +172,12 @@ endif()
 
 add_executable(karna src/main.cpp)
 target_link_libraries(karna PRIVATE karna_lib)
+
+add_custom_command(TARGET karna POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_SOURCE_DIR}/resources/cacert.pem"
+    "$<TARGET_FILE_DIR:karna>/cacert.pem"
+)
 
 option(KARNA_BUILD_TESTS "Build tests" OFF)
 

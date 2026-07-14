@@ -1,4 +1,5 @@
 #include "providers/openrouter.h"
+#include "net/curl_setup.h"
 #include "core/system_prompt.h"
 #include "token/counter.h"
 #include "project/context.h"
@@ -50,19 +51,14 @@ void OpenRouterProvider::set_model(const std::string& model)
     model_ = model;
     auto models = fetch_models();
     int context_window = 0;
-    std::vector<ModelInfo> openai_models;
-    const bool openai_endpoint = config_.base_url.find("api.openai.com") != std::string::npos;
     for (const auto& model_info : models) {
         if (model_info.id == model_) {
             context_window = model_info.context_length;
         }
-        if (openai_endpoint || model_info.owned_by == "openai" || model_info.id.rfind("openai/", 0) == 0) {
-            openai_models.push_back(model_info);
-        }
     }
     {
         std::lock_guard<std::mutex> lock(metadata_mutex_);
-        model_catalog_ = std::move(openai_models);
+        model_catalog_ = std::move(models);
         context_window_ = context_window;
     }
 }
@@ -85,18 +81,11 @@ std::vector<ModelInfo> OpenRouterProvider::available_models() const
     }
 
     auto models = fetch_models();
-    std::vector<ModelInfo> openai_models;
-    const bool openai_endpoint = config_.base_url.find("api.openai.com") != std::string::npos;
-    for (const auto& model_info : models) {
-        if (openai_endpoint || model_info.owned_by == "openai" || model_info.id.rfind("openai/", 0) == 0) {
-            openai_models.push_back(model_info);
-        }
-    }
     {
         std::lock_guard<std::mutex> lock(metadata_mutex_);
-        model_catalog_ = openai_models;
+        model_catalog_ = models;
     }
-    return openai_models;
+    return models;
 }
 
 int OpenRouterProvider::context_window() const
@@ -343,6 +332,7 @@ void OpenRouterProvider::send(
             if (on_error) on_error("Failed to initialize curl");
             return;
         }
+        configure_curl_ssl(curl);
 
         json body = build_request_body(history, tools);
         std::string body_str = body.dump();
@@ -396,6 +386,7 @@ std::vector<ModelInfo> OpenRouterProvider::fetch_models() const
     if (!curl) {
         return {};
     }
+    configure_curl_ssl(curl);
 
     std::string response;
     struct curl_slist* headers = nullptr;

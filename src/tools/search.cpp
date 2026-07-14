@@ -1,4 +1,5 @@
 #include "tools/search.h"
+#include "net/curl_setup.h"
 
 #include <curl/curl.h>
 #include <sstream>
@@ -55,6 +56,7 @@ ToolResult SearchTool::perform_exa_search(const std::string& query, int num_resu
     if (!curl) {
         return ToolResult::fail("Failed to initialize HTTP client");
     }
+    configure_curl_ssl(curl);
 
     json body;
     body["query"] = query;
