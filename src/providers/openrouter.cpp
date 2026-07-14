@@ -243,7 +243,11 @@ json OpenRouterProvider::build_request_body(
                 j["tool_call_id"] = *msg.tool_call_id;
             }
         } else if (msg.role == MessageRole::Assistant && !msg.tool_calls.empty()) {
-            j["content"] = msg.content.empty() ? nullptr : msg.content;
+            if (msg.content.empty()) {
+                j["content"] = nullptr;
+            } else {
+                j["content"] = msg.content;
+            }
             json tc_array = json::array();
             for (const auto& tc : msg.tool_calls) {
                 json tcj;

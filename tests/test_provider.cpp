@@ -15,6 +15,17 @@ TEST_CASE("OpenRouter continuation survives arbitrary tool bytes", "[provider][t
     OpenRouterProvider provider(config);
     std::vector<Message> history;
 
+    Message assistant_tool_call;
+    assistant_tool_call.role = MessageRole::Assistant;
+    assistant_tool_call.tool_calls.push_back({
+        .id = "call_1",
+        .type = "function",
+        .function_name = "write",
+        .arguments = R"({"path":"simple.html","content":"hello"})",
+        .index = 0,
+    });
+    history.push_back(std::move(assistant_tool_call));
+
     Message tool_result;
     tool_result.role = MessageRole::Tool;
     tool_result.tool_call_id = "call_1";
