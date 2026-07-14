@@ -19,6 +19,25 @@ using DeltaCallback = std::function<void(Delta)>;
 using ErrorCallback = std::function<void(std::string)>;
 using DoneCallback = std::function<void(Usage)>;
 
+std::string normalize_tool_arguments(const std::string& arguments)
+{
+    if (arguments.empty()) {
+        return "{}";
+    }
+
+    try {
+        const auto parsed = json::parse(arguments);
+        if (parsed.is_object()) {
+            return arguments;
+        }
+    } catch (...) {
+        // The model can emit an incomplete JSON fragment in a streamed tool
+        // call. The continuation request must still contain valid JSON.
+    }
+
+    return "{}";
+}
+
 void notify_delta(const DeltaCallback& callback, const Delta& delta) noexcept
 {
     try {
@@ -255,7 +274,7 @@ json OpenRouterProvider::build_request_body(
                 tcj["type"] = tc.type;
                 tcj["function"] = json::object();
                 tcj["function"]["name"] = tc.function_name;
-                tcj["function"]["arguments"] = tc.arguments;
+                tcj["function"]["arguments"] = normalize_tool_arguments(tc.arguments);
                 tc_array.push_back(tcj);
             }
             j["tool_calls"] = tc_array;
