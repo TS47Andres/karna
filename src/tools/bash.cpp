@@ -1,18 +1,18 @@
-#include "tools/run.h"
+#include "tools/bash.h"
 #include "process/runner.h"
 
 namespace {
 constexpr int kDefaultTimeoutMs = 60 * 1000;
 }
 
-std::string RunTool::name() const { return "bash"; }
+std::string BashTool::name() const { return "bash"; }
 
-std::string RunTool::description() const
+std::string BashTool::description() const
 {
     return "Execute a shell command in the project directory and stream its output. On Windows, use native PowerShell syntax.";
 }
 
-json RunTool::parameters() const
+json BashTool::parameters() const
 {
     return {
         {"type", "object"},
@@ -37,13 +37,13 @@ json RunTool::parameters() const
     };
 }
 
-ToolResult RunTool::execute(const json& params)
+ToolResult BashTool::execute(const json& params)
 {
     return execute_stream(params, {}, {});
 }
 
-ToolResult RunTool::execute_stream(const json& params, ToolOutputCallback on_output,
-                                   ToolCancelCallback should_cancel)
+ToolResult BashTool::execute_stream(const json& params, ToolOutputCallback on_output,
+                                    ToolCancelCallback should_cancel)
 {
     std::string command = params["command"].get<std::string>();
     int timeout = params.value("timeout", kDefaultTimeoutMs);

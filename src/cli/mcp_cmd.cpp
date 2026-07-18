@@ -5,7 +5,8 @@
 #include "tools/read.h"
 #include "tools/write.h"
 #include "tools/edit.h"
-#include "tools/run.h"
+#include "tools/bash.h"
+#include "tools/sub_agent.h"
 #include "tools/search.h"
 #include "tools/glob.h"
 #include "tools/grep.h"
@@ -21,7 +22,11 @@ int cli::run_mcp(int /*argc*/, char** /*argv*/)
     tools.register_tool(std::make_unique<ReadTool>());
     tools.register_tool(std::make_unique<WriteTool>());
     tools.register_tool(std::make_unique<EditTool>());
-    tools.register_tool(std::make_unique<RunTool>());
+    tools.register_tool(std::make_unique<BashTool>());
+    tools.register_tool(std::make_unique<SubAgentTool>(
+        [config]() { return config; },
+        [config]() { return config.openrouter.default_model; }
+    ));
     tools.register_tool(std::make_unique<SearchTool>(config.exa));
     tools.register_tool(std::make_unique<GlobTool>());
     tools.register_tool(std::make_unique<GrepTool>());

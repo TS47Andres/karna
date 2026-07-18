@@ -93,7 +93,7 @@ void TuiApp::run()
             return true; // Consume Tab to prevent focus loss
         }
         if (event == Event::Character('\x14') && input_bar_.get_text().empty()) {
-            chat_view_.toggle_bash_view();
+            chat_view_.toggle_last_tool_view();
             return true;
         }
         if (event.is_mouse()) {

@@ -3,7 +3,8 @@
 #include "tools/read.h"
 #include "tools/write.h"
 #include "tools/edit.h"
-#include "tools/run.h"
+#include "tools/bash.h"
+#include "tools/sub_agent.h"
 #include "tools/search.h"
 #include "tools/glob.h"
 #include "tools/grep.h"
@@ -43,7 +44,11 @@ void Controller::setup_tools()
     tool_registry_.register_tool(std::make_unique<ReadTool>());
     tool_registry_.register_tool(std::make_unique<WriteTool>());
     tool_registry_.register_tool(std::make_unique<EditTool>());
-    tool_registry_.register_tool(std::make_unique<RunTool>());
+    tool_registry_.register_tool(std::make_unique<BashTool>());
+    tool_registry_.register_tool(std::make_unique<SubAgentTool>(
+        [this]() { return config_; },
+        [this]() { return session_.model(); }
+    ));
     tool_registry_.register_tool(std::make_unique<SearchTool>(config_.exa));
     tool_registry_.register_tool(std::make_unique<GlobTool>());
     tool_registry_.register_tool(std::make_unique<GrepTool>());
@@ -397,6 +402,21 @@ void Controller::execute_tool_calls_and_continue(std::map<int, ToolCall> tool_ca
                                         tui_->chat_view().append_bash_output(key, output);
                                     });
                                 };
+                            } else if (tc.function_name == "sub_agent") {
+                                execution.display_key = tc.id.empty()
+                                    ? "sub-agent-" + std::to_string(idx)
+                                    : tc.id;
+                                const std::string key = execution.display_key;
+                                const std::string task = args.value("task", "");
+                                const std::string mode = args.value("mode", "R");
+                                tui_->post([this, key, task, mode]() {
+                                    tui_->chat_view().show_subagent_started(key, task, mode);
+                                });
+                                on_output = [this, key](const std::string& event) {
+                                    tui_->post([this, key, event]() {
+                                        tui_->chat_view().update_subagent(key, event);
+                                    });
+                                };
                             }
 
                             ToolCancelCallback should_cancel = [this]() {
@@ -514,6 +534,14 @@ void Controller::finish_tool_execution(std::vector<ToolExecutionResult> results)
                 tui_->chat_view().show_system_message(
                     "bash : command : " + std::to_string(kDefaultBashTimeoutMs) +
                     "ms : " + execution.output);
+            }
+        } else if (tc.function_name == "sub_agent") {
+            if (!execution.display_key.empty()) {
+                tui_->chat_view().finish_subagent(
+                    execution.display_key, execution.output, execution.success);
+            } else {
+                tui_->chat_view().show_system_message(
+                    "sub_agent : " + execution.output);
             }
         } else if ((tc.function_name == "write" || tc.function_name == "edit") &&
                    execution.success && execution.data.is_object() &&

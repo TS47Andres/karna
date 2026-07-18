@@ -150,7 +150,7 @@ karna/
 │   │   ├── read.h/cpp
 │   │   ├── write.h/cpp
 │   │   ├── edit.h/cpp
-│   │   ├── run.h/cpp
+│   │   ├── bash.h/cpp
 │   │   ├── search.h/cpp
 │   │   ├── glob.h/cpp
 │   │   └── grep.h/cpp

@@ -4,7 +4,8 @@
 #include "tools/read.h"
 #include "tools/write.h"
 #include "tools/edit.h"
-#include "tools/run.h"
+#include "tools/bash.h"
+#include "tools/sub_agent.h"
 #include "tools/glob.h"
 #include "tools/grep.h"
 
@@ -66,7 +67,7 @@ TEST_CASE("EditTool replaces text", "[tools]")
 
 TEST_CASE("BashTool streams output and reports timeout metadata", "[tools]")
 {
-    RunTool tool;
+    BashTool tool;
     std::vector<std::string> chunks;
     auto result = tool.execute_stream(
         json::parse(R"({"command": "echo streamed"})"),
@@ -77,4 +78,16 @@ TEST_CASE("BashTool streams output and reports timeout metadata", "[tools]")
     REQUIRE(result.data["timeout_set"] == false);
     REQUIRE_FALSE(chunks.empty());
     REQUIRE_THAT(result.output, Catch::Matchers::ContainsSubstring("streamed"));
+}
+
+TEST_CASE("SubAgentTool exposes read and read-write modes", "[tools]")
+{
+    SubAgentTool tool(
+        [] { return Config{}; },
+        [] { return std::string("test-model"); });
+    const auto schema = tool.parameters();
+
+    REQUIRE(tool.name() == "sub_agent");
+    REQUIRE(schema["properties"]["mode"]["enum"] == json({"R", "RW"}));
+    REQUIRE(schema["properties"]["mode"]["default"] == "R");
 }

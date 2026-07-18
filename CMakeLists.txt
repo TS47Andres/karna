@@ -137,7 +137,8 @@ set(LIB_SOURCES
   src/tools/read.cpp
   src/tools/write.cpp
   src/tools/edit.cpp
-  src/tools/run.cpp
+  src/tools/bash.cpp
+  src/tools/sub_agent.cpp
   src/tools/search.cpp
   src/net/curl_setup.cpp
   src/tools/glob.cpp

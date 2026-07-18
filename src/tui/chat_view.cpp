@@ -177,10 +177,64 @@ void ChatView::finish_bash(const std::string& key, const std::string& output, bo
 
 void ChatView::toggle_bash_view()
 {
+    toggle_last_tool_view();
+}
+
+void ChatView::toggle_last_tool_view()
+{
     std::lock_guard<std::mutex> lock(mutex_);
     for (auto it = messages_.rbegin(); it != messages_.rend(); ++it) {
         if (it->tool_display == ToolDisplay::Bash) {
             it->bash_expanded = !it->bash_expanded;
+            return;
+        }
+        if (it->tool_display == ToolDisplay::SubAgent) {
+            it->subagent_expanded = !it->subagent_expanded;
+            return;
+        }
+    }
+}
+
+void ChatView::show_subagent_started(const std::string& key, const std::string& task,
+                                     const std::string& mode)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    DisplayMessage message;
+    message.role = MessageRole::Tool;
+    message.tool_name = "sub_agent";
+    message.tool_parameter = task;
+    message.display_key = key;
+    message.tool_display = ToolDisplay::SubAgent;
+    message.subagent_mode = mode;
+    message.subagent_task = task;
+    message.subagent_running = true;
+    messages_.push_back(std::move(message));
+}
+
+void ChatView::update_subagent(const std::string& key, const std::string& event)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto it = messages_.rbegin(); it != messages_.rend(); ++it) {
+        if (it->tool_display != ToolDisplay::SubAgent || it->display_key != key) {
+            continue;
+        }
+        if (event.rfind("tool:", 0) == 0) {
+            it->subagent_latest_tool = event.substr(5);
+            ++it->subagent_tools_used;
+        }
+        return;
+    }
+}
+
+void ChatView::finish_subagent(const std::string& key, const std::string& report,
+                               bool success)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto it = messages_.rbegin(); it != messages_.rend(); ++it) {
+        if (it->tool_display == ToolDisplay::SubAgent && it->display_key == key) {
+            it->content = report;
+            it->subagent_running = false;
+            it->subagent_success = success;
             return;
         }
     }
@@ -293,6 +347,10 @@ Element ChatView::render_message(const DisplayMessage& msg) const
 
     if (msg.role == MessageRole::Tool && msg.tool_display == ToolDisplay::Bash) {
         return render_bash(msg);
+    }
+
+    if (msg.role == MessageRole::Tool && msg.tool_display == ToolDisplay::SubAgent) {
+        return render_subagent(msg);
     }
 
     if (msg.role == MessageRole::Tool) {
@@ -438,6 +496,45 @@ Element ChatView::render_bash(const DisplayMessage& msg) const
         panel = panel | size(HEIGHT, EQUAL, 8);
     }
 
+    return panel | borderRounded | color(Color::GrayDark);
+}
+
+Element ChatView::render_subagent(const DisplayMessage& msg) const
+{
+    const std::string state = msg.subagent_running ? "running" :
+        (msg.subagent_success ? "done" : "failed");
+    const std::string latest = msg.subagent_latest_tool.empty()
+        ? "thinking"
+        : msg.subagent_latest_tool;
+
+    auto header = hbox({
+        text(" sub_agent : " + msg.subagent_mode + " : ") |
+            bold | color(Color::White),
+        paragraph(msg.subagent_task) | color(Color::White) | flex,
+        text(" : " + std::to_string(msg.subagent_tools_used) +
+             " tools · " + latest + " · " + state + " ") |
+            color(Color::GrayDark),
+    });
+
+    Elements body;
+    if (msg.subagent_expanded) {
+        body.push_back(paragraph(msg.content.empty() ? "(no report)" : msg.content) |
+                       color(Color::GrayLight) | yframe);
+    } else {
+        const std::string summary = msg.subagent_running
+            ? "working · latest tool: " + latest
+            : "report ready · Ctrl+T to expand";
+        body.push_back(text(" " + summary) | color(Color::GrayDark) | dim);
+    }
+
+    auto panel = vbox({
+        header,
+        separator() | color(Color::GrayDark),
+        vbox(std::move(body)) | yframe,
+    });
+    if (!msg.subagent_expanded) {
+        panel = panel | size(HEIGHT, EQUAL, 4);
+    }
     return panel | borderRounded | color(Color::GrayDark);
 }
 

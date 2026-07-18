@@ -28,6 +28,11 @@ public:
     void append_bash_output(const std::string& key, const std::string& output);
     void finish_bash(const std::string& key, const std::string& output, bool success);
     void toggle_bash_view();
+    void show_subagent_started(const std::string& key, const std::string& task,
+                               const std::string& mode);
+    void update_subagent(const std::string& key, const std::string& event);
+    void finish_subagent(const std::string& key, const std::string& report, bool success);
+    void toggle_last_tool_view();
     void set_model(const std::string& model);
     void clear();
     void set_on_scroll_to_bottom(std::function<void()> cb);
@@ -43,6 +48,7 @@ private:
         Activity,
         Diff,
         Bash,
+        SubAgent,
     };
     struct DisplayMessage {
         MessageRole role;
@@ -60,6 +66,13 @@ private:
         bool bash_expanded{false};
         bool bash_running{false};
         bool bash_success{false};
+        std::string subagent_mode;
+        std::string subagent_task;
+        std::string subagent_latest_tool;
+        int subagent_tools_used{0};
+        bool subagent_expanded{false};
+        bool subagent_running{false};
+        bool subagent_success{false};
     };
 
     std::vector<DisplayMessage> messages_;
@@ -72,6 +85,7 @@ private:
     ftxui::Element render_message(const DisplayMessage& msg) const;
     ftxui::Element render_tool_diff(const DisplayMessage& msg) const;
     ftxui::Element render_bash(const DisplayMessage& msg) const;
+    ftxui::Element render_subagent(const DisplayMessage& msg) const;
     std::string role_label(MessageRole role) const;
     ftxui::Color role_color(MessageRole role) const;
     ftxui::Color role_bg(MessageRole role) const;
