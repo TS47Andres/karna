@@ -46,6 +46,33 @@ if(EXISTS "${_ftxui_screen}")
 endif()
 unset(_ftxui_screen)
 
+# Patch FTXUI screen cursor handling for redraws:
+# 1. Start with a deterministic hidden cursor instead of an uninitialized shape
+# 2. Keep the cursor hidden while the complete frame is written, then reveal it
+#    only at the final input position. This prevents origin/end cursor flashes.
+set(_ftxui_screen_header "${ftxui_SOURCE_DIR}/include/ftxui/screen/screen.hpp")
+if(EXISTS "${_ftxui_screen_header}")
+  file(READ "${_ftxui_screen_header}" _screen_header_src)
+  string(REPLACE "    Shape shape;" "    Shape shape = Hidden;" _screen_header_src "${_screen_header_src}")
+  file(WRITE "${_ftxui_screen_header}" "${_screen_header_src}")
+endif()
+unset(_ftxui_screen_header)
+
+set(_ftxui_screen_impl "${ftxui_SOURCE_DIR}/src/ftxui/component/screen_interactive.cpp")
+if(EXISTS "${_ftxui_screen_impl}")
+  file(READ "${_ftxui_screen_impl}" _screen_impl_src)
+  string(ASCII 92 _backslash)
+  set(_cursor_safe_write "  std::cout << \"${_backslash}033[?25l\" << ToString() << set_cursor_position;")
+  set(_cursor_bad_write "  std::cout << \"${_backslash}${_backslash}x1B[?25l\" << ToString() << set_cursor_position;")
+  string(REPLACE "${_cursor_bad_write}" "${_cursor_safe_write}" _screen_impl_src "${_screen_impl_src}")
+  string(REPLACE "  std::cout << ToString() << set_cursor_position;" "${_cursor_safe_write}" _screen_impl_src "${_screen_impl_src}")
+  unset(_backslash)
+  unset(_cursor_bad_write)
+  unset(_cursor_safe_write)
+  file(WRITE "${_ftxui_screen_impl}" "${_screen_impl_src}")
+endif()
+unset(_ftxui_screen_impl)
+
 FetchContent_Declare(
   CLI11
   GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git

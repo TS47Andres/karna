@@ -3,6 +3,31 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <processthreadsapi.h>
+
+namespace {
+std::string quote_windows_argument(const std::string& argument)
+{
+    std::string quoted = "\"";
+    size_t backslashes = 0;
+    for (const char ch : argument) {
+        if (ch == '\\') {
+            ++backslashes;
+            continue;
+        }
+        if (ch == '\"') {
+            quoted.append(backslashes * 2 + 1, '\\');
+            quoted.push_back('\"');
+        } else {
+            quoted.append(backslashes, '\\');
+            quoted.push_back(ch);
+        }
+        backslashes = 0;
+    }
+    quoted.append(backslashes * 2, '\\');
+    quoted.push_back('\"');
+    return quoted;
+}
+}
 #else
 #include <unistd.h>
 #include <sys/wait.h>
@@ -33,7 +58,8 @@ ProcessResult ProcessRunner::run(
     }
 
 #ifdef _WIN32
-    std::string cmd = "cmd.exe /c " + command;
+    std::string cmd = "powershell.exe -NoLogo -NoProfile -NonInteractive -Command " +
+        quote_windows_argument(command);
 
     SECURITY_ATTRIBUTES sa;
     sa.nLength = sizeof(sa);
@@ -71,12 +97,12 @@ ProcessResult ProcessRunner::run(
         CloseHandle(hStdoutRead);
         CloseHandle(hStderrRead);
         result.exit_code = -1;
-        result.stderr_str = "Failed to create process";
+        result.stderr_str = "Failed to create PowerShell process";
         return result;
     }
 
     // Keep the entire command tree together so cancelling a command also
-    // terminates npm/node and other descendants, rather than only cmd.exe.
+    // terminates PowerShell and its descendants.
     HANDLE hJob = CreateJobObjectA(nullptr, nullptr);
     if (hJob) {
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};

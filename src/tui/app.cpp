@@ -22,10 +22,20 @@ void TuiApp::run()
     run_refresh_thread_ = true;
     refresh_thread_ = std::thread([this]() noexcept {
         try {
+            int typing_refresh_ticks = 0;
             while (run_refresh_thread_.load()) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(80));
-                if (status_bar_.is_typing()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(16));
+                const bool scrolling = chat_view_.advance_scroll_animation();
+                const bool typing = status_bar_.is_typing();
+                const bool typing_refresh = typing && (++typing_refresh_ticks >= 5);
+                if (typing_refresh) {
+                    typing_refresh_ticks = 0;
+                }
+                if (typing_refresh || scrolling) {
                     request_refresh();
+                }
+                if (!typing) {
+                    typing_refresh_ticks = 0;
                 }
             }
         } catch (...) {
@@ -33,7 +43,6 @@ void TuiApp::run()
         }
     });
 
-    std::cout << "\033[?25l";
     chat_component_ = chat_view_.build();
     input_component_ = input_bar_.build();
     auto status_component = status_bar_.build();
@@ -146,7 +155,6 @@ void TuiApp::run()
     });
 
     screen_.Loop(main_component_);
-    std::cout << "\033[?25h";
 }
 
 void TuiApp::set_typing_state(bool typing)

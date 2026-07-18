@@ -9,7 +9,7 @@ std::string RunTool::name() const { return "bash"; }
 
 std::string RunTool::description() const
 {
-    return "Execute a bash shell command in the project directory and stream its output.";
+    return "Execute a shell command in the project directory and stream its output. On Windows, use native PowerShell syntax.";
 }
 
 json RunTool::parameters() const
@@ -19,7 +19,7 @@ json RunTool::parameters() const
         {"properties", {
             {"command", {
                 {"type", "string"},
-                {"description", "Shell command to execute"}
+                {"description", "One complete shell command string. On Windows, use Windows PowerShell syntax: semicolons for sequential commands, PowerShell pipelines, Set-Location, and $env:NAME; do not use CMD or Bash-only syntax."}
             }},
             {"timeout", {
                 {"type", "integer"},

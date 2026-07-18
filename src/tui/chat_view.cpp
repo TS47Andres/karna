@@ -24,25 +24,10 @@ ChatView::ChatView()
 Component ChatView::build()
 {
     auto renderer = Renderer([this] { return render(); });
-    component_ = CatchEvent(renderer, [this](Event event) {
-        if (event.is_mouse()) {
-            if (event.mouse().button == Mouse::WheelUp) {
-                scroll_by(-0.08f);
-            } else if (event.mouse().button == Mouse::WheelDown) {
-                scroll_by(0.08f);
-            }
-            return true;
-        }
-        if (event == Event::PageUp || event == Event::Home) {
-            scroll_by(event == Event::Home ? -1.0f : -0.25f);
-            return true;
-        }
-        if (event == Event::PageDown || event == Event::End) {
-            scroll_by(event == Event::End ? 1.0f : 0.25f);
-            return true;
-        }
-        return false;
-    });
+    // Scroll events are handled by the app-level component so they never
+    // compete with the focused input component. The view itself only renders
+    // the chat and animates toward its requested scroll position.
+    component_ = renderer;
     return component_;
 }
 
@@ -588,11 +573,27 @@ Element ChatView::render()
 void ChatView::set_scroll_to_bottom(bool scroll)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    scroll_position_ = scroll ? 1.0f : 0.0f;
+    scroll_position_ = scroll_target_ = scroll ? 1.0f : 0.0f;
 }
 
 void ChatView::scroll_by(float amount)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    scroll_position_ = std::clamp(scroll_position_ + amount, 0.0f, 1.0f);
+    scroll_target_ = std::clamp(scroll_target_ + amount, 0.0f, 1.0f);
+}
+
+bool ChatView::advance_scroll_animation()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    const float distance = scroll_target_ - scroll_position_;
+    if (std::abs(distance) < 0.001f) {
+        scroll_position_ = scroll_target_;
+        return false;
+    }
+
+    // Exponential easing keeps wheel and keyboard scrolling responsive while
+    // avoiding the large jumps caused by changing focusPositionRelative()
+    // directly on every input event.
+    scroll_position_ += distance * 0.28f;
+    return true;
 }
