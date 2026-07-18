@@ -67,6 +67,159 @@ static std::string decode_entity(const std::string& text)
     return text;
 }
 
+static std::string lower_ascii(std::string value)
+{
+    for (auto& character : value) {
+        character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+    }
+    return value;
+}
+
+static std::string strip_html_markup(const std::string& value)
+{
+    std::string result;
+    bool in_tag = false;
+    for (char character : value) {
+        if (character == '<') {
+            in_tag = true;
+            continue;
+        }
+        if (character == '>') {
+            in_tag = false;
+            result.push_back(' ');
+            continue;
+        }
+        if (!in_tag) {
+            result.push_back(character);
+        }
+    }
+
+    std::string decoded;
+    for (size_t index = 0; index < result.size();) {
+        if (result[index] == '&') {
+            const size_t end = result.find(';', index);
+            if (end != std::string::npos) {
+                decoded += decode_entity(result.substr(index, end - index + 1));
+                index = end + 1;
+                continue;
+            }
+        }
+        decoded.push_back(result[index++]);
+    }
+
+    std::string normalized;
+    bool whitespace = false;
+    for (char character : decoded) {
+        if (std::isspace(static_cast<unsigned char>(character))) {
+            whitespace = true;
+        } else {
+            if (whitespace && !normalized.empty()) normalized.push_back(' ');
+            normalized.push_back(character);
+            whitespace = false;
+        }
+    }
+    return normalized;
+}
+
+static std::string escape_table_cell(std::string value)
+{
+    size_t position = 0;
+    while ((position = value.find('|', position)) != std::string::npos) {
+        value.replace(position, 1, "\\|");
+        position += 2;
+    }
+    return value;
+}
+
+static std::string html_table_to_markdown(const std::string& table)
+{
+    const std::string lower = lower_ascii(table);
+    std::vector<std::vector<std::string>> rows;
+    size_t row_position = 0;
+
+    while (true) {
+        const size_t row_start = lower.find("<tr", row_position);
+        if (row_start == std::string::npos) break;
+        const size_t row_open_end = lower.find('>', row_start);
+        const size_t row_end = lower.find("</tr", row_open_end);
+        if (row_open_end == std::string::npos || row_end == std::string::npos) break;
+
+        const std::string row_lower = lower.substr(row_open_end + 1, row_end - row_open_end - 1);
+        const std::string row_source = table.substr(row_open_end + 1, row_end - row_open_end - 1);
+        std::vector<std::string> cells;
+        size_t cell_position = 0;
+        while (true) {
+            const size_t th = row_lower.find("<th", cell_position);
+            const size_t td = row_lower.find("<td", cell_position);
+            size_t cell_start = std::min(
+                th == std::string::npos ? row_lower.size() : th,
+                td == std::string::npos ? row_lower.size() : td);
+            if (cell_start == row_lower.size()) break;
+
+            const bool is_header = row_lower.compare(cell_start, 3, "<th") == 0;
+            const std::string close_tag = is_header ? "</th" : "</td";
+            const size_t cell_open_end = row_lower.find('>', cell_start);
+            const size_t cell_end = row_lower.find(close_tag, cell_open_end);
+            if (cell_open_end == std::string::npos || cell_end == std::string::npos) break;
+
+            cells.push_back(escape_table_cell(strip_html_markup(
+                row_source.substr(cell_open_end + 1, cell_end - cell_open_end - 1))));
+            cell_position = cell_end + close_tag.size();
+        }
+
+        if (!cells.empty()) rows.push_back(std::move(cells));
+        row_position = row_end + 4;
+    }
+
+    if (rows.empty()) return table;
+
+    const size_t columns = rows.front().size();
+    std::ostringstream markdown;
+    auto write_row = [&markdown, columns](const std::vector<std::string>& row) {
+        markdown << "|";
+        for (size_t column = 0; column < columns; ++column) {
+            markdown << " " << (column < row.size() ? row[column] : "") << " |";
+        }
+        markdown << "\n";
+    };
+
+    write_row(rows.front());
+    markdown << "|";
+    for (size_t column = 0; column < columns; ++column) {
+        markdown << " --- |";
+    }
+    markdown << "\n";
+    for (size_t row = 1; row < rows.size(); ++row) write_row(rows[row]);
+    return markdown.str();
+}
+
+static std::string normalize_html_tables(const std::string& markdown)
+{
+    const std::string lower = lower_ascii(markdown);
+    std::string normalized;
+    size_t position = 0;
+    while (true) {
+        const size_t table_start = lower.find("<table", position);
+        if (table_start == std::string::npos) {
+            normalized += markdown.substr(position);
+            break;
+        }
+        normalized += markdown.substr(position, table_start - position);
+        const size_t table_open_end = lower.find('>', table_start);
+        const size_t table_end = lower.find("</table", table_open_end);
+        if (table_open_end == std::string::npos || table_end == std::string::npos) {
+            normalized += markdown.substr(table_start);
+            break;
+        }
+        const size_t table_close_end = lower.find('>', table_end);
+        const std::string table = markdown.substr(
+            table_open_end + 1, table_end - table_open_end - 1);
+        normalized += html_table_to_markdown(table);
+        position = table_close_end == std::string::npos ? markdown.size() : table_close_end + 1;
+    }
+    return normalized;
+}
+
 static void add_text_words(Elements& target, const std::string& str)
 {
     std::string word;
@@ -195,10 +348,12 @@ int MarkdownRenderer::enter_block_cb(MD_BLOCKTYPE type, void* detail, void* user
             s.table_cell_texts.clear();
             s.table_row_cells.clear();
             s.in_table_head = false;
+            s.table_has_header = false;
             break;
         }
         case MD_BLOCK_THEAD:
             s.in_table_head = true;
+            s.table_has_header = true;
             break;
         case MD_BLOCK_TBODY:
             s.in_table_head = false;
@@ -331,7 +486,8 @@ int MarkdownRenderer::leave_block_cb(MD_BLOCKTYPE type, void* detail, void* user
             break;
         }
         case MD_BLOCK_TABLE: {
-            auto table = render_table(s.table_col_widths, s.table_cell_texts, false);
+            auto table = render_table(
+                s.table_col_widths, s.table_cell_texts, s.table_has_header);
             s.block_stack.back().push_back(std::move(table));
             break;
         }
@@ -415,6 +571,18 @@ int MarkdownRenderer::text_cb(MD_TEXTTYPE type, const MD_CHAR* raw, MD_SIZE size
         return 0;
     }
 
+    if (s.in_table_cell_) {
+        if (type == MD_TEXT_NORMAL || type == MD_TEXT_SOFTBR ||
+            type == MD_TEXT_CODE || type == MD_TEXT_HTML) {
+            s.current_cell_text_ += str;
+        } else if (type == MD_TEXT_ENTITY) {
+            s.current_cell_text_ += decode_entity(str);
+        } else if (type == MD_TEXT_BR) {
+            s.current_cell_text_ += ' ';
+        }
+        return 0;
+    }
+
     if (type == MD_TEXT_NORMAL || type == MD_TEXT_SOFTBR) {
         if (s.in_table_cell_)
             s.current_cell_text_ += str;
@@ -443,7 +611,8 @@ int MarkdownRenderer::text_cb(MD_TEXTTYPE type, const MD_CHAR* raw, MD_SIZE size
         if (s.in_table_cell_)
             s.current_cell_text_ += str;
         auto& target = s.inline_stack.empty() ? s.block_stack.back() : s.inline_stack.back();
-        auto code_elem = text(str) | bgcolor(Color::GrayDark) | color(Color::YellowLight);
+        auto code_elem = text(str + " ") |
+            bgcolor(Color::GrayDark) | color(Color::YellowLight);
         target.push_back(std::move(code_elem));
         return 0;
     }
@@ -474,6 +643,7 @@ Element MarkdownRenderer::render(const std::string& markdown)
 {
     state_ = RenderState{};
     state_.block_stack.emplace_back();
+    const std::string normalized_markdown = normalize_html_tables(markdown);
 
     MD_PARSER parser{};
     parser.abi_version = 0;
@@ -486,7 +656,8 @@ Element MarkdownRenderer::render(const std::string& markdown)
     parser.debug_log = nullptr;
     parser.syntax = nullptr;
 
-    md_parse(markdown.data(), static_cast<MD_SIZE>(markdown.size()), &parser, this);
+    md_parse(normalized_markdown.data(),
+             static_cast<MD_SIZE>(normalized_markdown.size()), &parser, this);
 
     if (!state_.doc_result.empty())
         return vbox(std::move(state_.doc_result));

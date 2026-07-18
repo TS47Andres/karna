@@ -20,6 +20,7 @@ private:
         int list_counter{0};
         bool in_code_block{false};
         bool in_table_head{false};
+        bool table_has_header{false};
         unsigned table_col_count{0};
         unsigned table_row_index{0};
         std::vector<unsigned> table_col_widths;

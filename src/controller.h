@@ -9,6 +9,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <cstdint>
 
 #include "config/config.h"
 #include "core/session.h"
@@ -39,6 +40,7 @@ private:
     std::atomic<bool> abort_pending_{false};
     std::atomic<bool> tool_cancel_requested_{false};
     std::atomic<bool> tool_execution_active_{false};
+    std::atomic<uint64_t> tool_display_sequence_{0};
     std::chrono::steady_clock::time_point last_abort_press_;
 
     json tools_json_;

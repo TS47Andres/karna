@@ -33,6 +33,11 @@ public:
     void update_subagent(const std::string& key, const std::string& event);
     void finish_subagent(const std::string& key, const std::string& report, bool success);
     void toggle_last_tool_view();
+    bool focus_next_tool();
+    bool has_focused_tool() const;
+    bool enter_focused_tool_view();
+    bool exit_tool_view();
+    bool in_tool_view() const;
     void set_model(const std::string& model);
     void clear();
     void set_on_scroll_to_bottom(std::function<void()> cb);
@@ -73,13 +78,16 @@ private:
         bool subagent_expanded{false};
         bool subagent_running{false};
         bool subagent_success{false};
+        bool tool_focused{false};
     };
 
     std::vector<DisplayMessage> messages_;
     std::string model_;
-    std::mutex mutex_;
+    mutable std::mutex mutex_;
     float scroll_position_{1.0f};
     float scroll_target_{1.0f};
+    int focused_tool_index_{-1};
+    bool tool_view_mode_{false};
     std::function<void()> on_scroll_to_bottom_;
     ftxui::Element render();
     ftxui::Element render_message(const DisplayMessage& msg) const;

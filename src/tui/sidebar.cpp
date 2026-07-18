@@ -110,13 +110,14 @@ Element Sidebar::render()
         });
     };
 
-    keys_elements.push_back(key_line("Enter", "Send msg"));
+    keys_elements.push_back(key_line("Enter", "Send / open tool"));
     keys_elements.push_back(key_line("Up/Down", "Scroll chat"));
     keys_elements.push_back(key_line("Ctrl+Up/Dn", "History"));
     keys_elements.push_back(key_line("Esc x2", "Abort chat"));
     keys_elements.push_back(key_line("/clear", "Clear chat"));
     keys_elements.push_back(key_line("/help", "List cmds"));
-    keys_elements.push_back(key_line("Ctrl+T", "Expand bash"));
+    keys_elements.push_back(key_line("Ctrl+T", "Focus tool"));
+    keys_elements.push_back(key_line("Esc", "Return from tool"));
 
     return vbox({
         vbox(std::move(project_elements)) | borderRounded | color_dim,

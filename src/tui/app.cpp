@@ -83,6 +83,11 @@ void TuiApp::run()
     input_bar_.focus();
 
     main_component_ = CatchEvent(renderer, [this](Event event) {
+        if (event == Event::Escape && chat_view_.in_tool_view()) {
+            chat_view_.exit_tool_view();
+            request_refresh();
+            return true;
+        }
         if (event == Event::F5 || event == Event::Escape) {
             if (on_escape_) {
                 on_escape_();
@@ -93,7 +98,14 @@ void TuiApp::run()
             return true; // Consume Tab to prevent focus loss
         }
         if (event == Event::Character('\x14') && input_bar_.get_text().empty()) {
-            chat_view_.toggle_last_tool_view();
+            chat_view_.focus_next_tool();
+            request_refresh();
+            return true;
+        }
+        if (event == Event::Return && input_bar_.get_text().empty() &&
+            chat_view_.has_focused_tool()) {
+            chat_view_.enter_focused_tool_view();
+            request_refresh();
             return true;
         }
         if (event.is_mouse()) {

@@ -48,8 +48,9 @@ detailed report to the main agent when finished.
 constexpr const char* kReportInstructions = R"(
 Do not ask the user questions. When the task is complete, respond with a
 detailed report containing: Summary, Findings or Changes, Files, Verification,
-and Remaining Issues. If you could not complete something, state the exact
-blocker and what remains.
+and Remaining Issues. Use HTML tables (<table>, <thead>, <tbody>, <tr>, <th>,
+and <td>) for tabular comparisons or repeated fields; do not use pipe tables.
+If you could not complete something, state the exact blocker and what remains.
 )";
 
 void emit(const ToolOutputCallback& callback, const std::string& event)

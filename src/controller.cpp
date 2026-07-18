@@ -381,9 +381,8 @@ void Controller::execute_tool_calls_and_continue(std::map<int, ToolCall> tool_ca
 
                             ToolOutputCallback on_output;
                             if (tc.function_name == "bash") {
-                                execution.display_key = tc.id.empty()
-                                    ? "bash-" + std::to_string(idx)
-                                    : tc.id;
+                                execution.display_key = "bash-" +
+                                    std::to_string(tool_display_sequence_.fetch_add(1));
                                 int timeout = args.value("timeout", kDefaultBashTimeoutMs);
                                 if (timeout <= 0) timeout = kDefaultBashTimeoutMs;
                                 const bool explicit_timeout = args.contains("timeout") &&
@@ -403,9 +402,8 @@ void Controller::execute_tool_calls_and_continue(std::map<int, ToolCall> tool_ca
                                     });
                                 };
                             } else if (tc.function_name == "sub_agent") {
-                                execution.display_key = tc.id.empty()
-                                    ? "sub-agent-" + std::to_string(idx)
-                                    : tc.id;
+                                execution.display_key = "sub-agent-" +
+                                    std::to_string(tool_display_sequence_.fetch_add(1));
                                 const std::string key = execution.display_key;
                                 const std::string task = args.value("task", "");
                                 const std::string mode = args.value("mode", "R");

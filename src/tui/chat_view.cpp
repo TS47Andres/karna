@@ -240,6 +240,72 @@ void ChatView::finish_subagent(const std::string& key, const std::string& report
     }
 }
 
+bool ChatView::focus_next_tool()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (messages_.empty()) {
+        focused_tool_index_ = -1;
+        return false;
+    }
+
+    const auto is_tool_panel = [](const DisplayMessage& message) {
+        return message.tool_display == ToolDisplay::Bash ||
+               message.tool_display == ToolDisplay::SubAgent;
+    };
+
+    const int count = static_cast<int>(messages_.size());
+    const int start = focused_tool_index_ < 0
+        ? count - 1
+        : (focused_tool_index_ - 1 + count) % count;
+    for (int offset = 0; offset < count; ++offset) {
+        const int candidate = (start - offset + count) % count;
+        if (is_tool_panel(messages_[candidate])) {
+            focused_tool_index_ = candidate;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ChatView::has_focused_tool() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return focused_tool_index_ >= 0 &&
+           focused_tool_index_ < static_cast<int>(messages_.size()) &&
+           (messages_[focused_tool_index_].tool_display == ToolDisplay::Bash ||
+            messages_[focused_tool_index_].tool_display == ToolDisplay::SubAgent);
+}
+
+bool ChatView::enter_focused_tool_view()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (focused_tool_index_ < 0 || focused_tool_index_ >= static_cast<int>(messages_.size())) {
+        return false;
+    }
+    const auto display = messages_[focused_tool_index_].tool_display;
+    if (display != ToolDisplay::Bash && display != ToolDisplay::SubAgent) {
+        return false;
+    }
+    tool_view_mode_ = true;
+    return true;
+}
+
+bool ChatView::exit_tool_view()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!tool_view_mode_) {
+        return false;
+    }
+    tool_view_mode_ = false;
+    return true;
+}
+
+bool ChatView::in_tool_view() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return tool_view_mode_;
+}
+
 void ChatView::set_model(const std::string& model)
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -250,6 +316,8 @@ void ChatView::clear()
 {
     std::lock_guard<std::mutex> lock(mutex_);
     messages_.clear();
+    focused_tool_index_ = -1;
+    tool_view_mode_ = false;
 }
 
 void ChatView::set_on_scroll_to_bottom(std::function<void()> cb)
@@ -482,7 +550,9 @@ Element ChatView::render_bash(const DisplayMessage& msg) const
     const std::string state = msg.bash_running ? " - running" :
         (msg.bash_success ? " - done" : " - failed");
     auto header = hbox({
-        text(" " + msg.tool_name + " : ") | bold | color(Color::White),
+        text(msg.tool_focused ? " > " : " " ) |
+            bold | color(msg.tool_focused ? Color::CyanLight : Color::White),
+        text(msg.tool_name + " : ") | bold | color(Color::White),
         paragraph(msg.tool_parameter) | color(Color::White) | flex,
         text(" : " + msg.tool_extra + state + " ") | color(Color::GrayDark),
     });
@@ -496,7 +566,8 @@ Element ChatView::render_bash(const DisplayMessage& msg) const
         panel = panel | size(HEIGHT, EQUAL, 8);
     }
 
-    return panel | borderRounded | color(Color::GrayDark);
+    return panel | borderRounded |
+        color(msg.tool_focused ? Color::CyanLight : Color::GrayDark);
 }
 
 Element ChatView::render_subagent(const DisplayMessage& msg) const
@@ -508,7 +579,9 @@ Element ChatView::render_subagent(const DisplayMessage& msg) const
         : msg.subagent_latest_tool;
 
     auto header = hbox({
-        text(" sub_agent : " + msg.subagent_mode + " : ") |
+        text(msg.tool_focused ? " > " : " ") |
+            bold | color(msg.tool_focused ? Color::CyanLight : Color::White),
+        text("sub_agent : " + msg.subagent_mode + " : ") |
             bold | color(Color::White),
         paragraph(msg.subagent_task) | color(Color::White) | flex,
         text(" : " + std::to_string(msg.subagent_tools_used) +
@@ -518,8 +591,13 @@ Element ChatView::render_subagent(const DisplayMessage& msg) const
 
     Elements body;
     if (msg.subagent_expanded) {
-        body.push_back(paragraph(msg.content.empty() ? "(no report)" : msg.content) |
-                       color(Color::GrayLight) | yframe);
+        MarkdownRenderer markdown;
+        body.push_back(markdown.render(msg.content.empty() ? "(no report)" : msg.content) |
+                       yframe);
+    } else if (!msg.subagent_running && !msg.content.empty()) {
+        MarkdownRenderer markdown;
+        body.push_back(markdown.render(msg.content) |
+                       size(HEIGHT, LESS_THAN, 2) | yframe);
     } else {
         const std::string summary = msg.subagent_running
             ? "working · latest tool: " + latest
@@ -533,9 +611,10 @@ Element ChatView::render_subagent(const DisplayMessage& msg) const
         vbox(std::move(body)) | yframe,
     });
     if (!msg.subagent_expanded) {
-        panel = panel | size(HEIGHT, EQUAL, 4);
+        panel = panel | size(HEIGHT, EQUAL, msg.subagent_running ? 4 : 5);
     }
-    return panel | borderRounded | color(Color::GrayDark);
+    return panel | borderRounded |
+        color(msg.tool_focused ? Color::CyanLight : Color::GrayDark);
 }
 
 namespace {
@@ -598,6 +677,21 @@ Element ChatView::render()
 {
     std::lock_guard<std::mutex> lock(mutex_);
 
+    if (tool_view_mode_ && focused_tool_index_ >= 0 &&
+        focused_tool_index_ < static_cast<int>(messages_.size())) {
+        auto selected = messages_[focused_tool_index_];
+        selected.tool_focused = true;
+        return vbox({
+            text(" TOOL VIEW  /  " + selected.tool_name + " ") |
+                bold | color(Color::White),
+            separator() | color(Color::GrayDark),
+            render_message(selected) | flex,
+            text(""),
+            text("Esc  return to chat    Ctrl+T  switch tool") |
+                color(Color::GrayDark) | dim,
+        }) | yframe;
+    }
+
     Elements children;
     if (!model_.empty()) {
         children.push_back(render_message({
@@ -610,12 +704,16 @@ Element ChatView::render()
         if (messages_[index].role == MessageRole::Tool) {
             Elements tool_messages;
             while (index < messages_.size() && messages_[index].role == MessageRole::Tool) {
-                tool_messages.push_back(render_message(messages_[index]));
+                auto tool_message = messages_[index];
+                tool_message.tool_focused = static_cast<int>(index) == focused_tool_index_;
+                tool_messages.push_back(render_message(tool_message));
                 ++index;
             }
             children.push_back(vbox(std::move(tool_messages)));
         } else {
-            children.push_back(render_message(messages_[index]));
+            auto message = messages_[index];
+            message.tool_focused = static_cast<int>(index) == focused_tool_index_;
+            children.push_back(render_message(message));
             ++index;
         }
     }
