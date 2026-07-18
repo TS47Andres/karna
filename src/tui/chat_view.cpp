@@ -207,6 +207,8 @@ void ChatView::show_subagent_started(const std::string& key, const std::string& 
     message.tool_display = ToolDisplay::SubAgent;
     message.subagent_mode = mode;
     message.subagent_task = task;
+    message.subagent_transcript = "### Task\n\n" + task +
+        "\n\n*Starting sub-agent...*";
     message.subagent_running = true;
     messages_.push_back(std::move(message));
 }
@@ -218,9 +220,46 @@ void ChatView::update_subagent(const std::string& key, const std::string& event)
         if (it->tool_display != ToolDisplay::SubAgent || it->display_key != key) {
             continue;
         }
-        if (event.rfind("tool:", 0) == 0) {
-            it->subagent_latest_tool = event.substr(5);
+        if (event == "status:thinking") {
+            it->subagent_transcript += "\n\n*Thinking...*";
+        } else if (event.rfind("assistant\n", 0) == 0) {
+            const std::string content = event.substr(10);
+            if (!content.empty()) {
+                it->subagent_transcript += "\n\n### Sub-agent\n\n" + content;
+            }
+        } else if (event.rfind("tool_call\n", 0) == 0) {
+            const std::string payload = event.substr(10);
+            const size_t separator = payload.find('\n');
+            const std::string name = separator == std::string::npos
+                ? payload : payload.substr(0, separator);
+            const std::string arguments = separator == std::string::npos
+                ? "{}" : payload.substr(separator + 1);
+            it->subagent_latest_tool = name;
             ++it->subagent_tools_used;
+            it->subagent_tool_output_started = false;
+            it->subagent_transcript += "\n\n#### Tool: `" + name + "`\n\n";
+            it->subagent_transcript += "```json\n" + arguments +
+                "\n```\n\n**Result**\n\n```text\n";
+        } else if (event.rfind("tool_output\n", 0) == 0) {
+            const std::string payload = event.substr(12);
+            const size_t separator = payload.find('\n');
+            if (separator != std::string::npos) {
+                const std::string output = payload.substr(separator + 1);
+                if (!output.empty()) {
+                    it->subagent_transcript += output;
+                    it->subagent_tool_output_started = true;
+                }
+            }
+        } else if (event.rfind("tool_result\n", 0) == 0) {
+            const std::string payload = event.substr(12);
+            const size_t separator = payload.find('\n');
+            const std::string output = separator == std::string::npos
+                ? "" : payload.substr(separator + 1);
+            if (!it->subagent_tool_output_started && !output.empty()) {
+                it->subagent_transcript += output;
+            }
+            it->subagent_transcript += "\n```";
+            it->subagent_tool_output_started = false;
         }
         return;
     }
@@ -233,6 +272,11 @@ void ChatView::finish_subagent(const std::string& key, const std::string& report
     for (auto it = messages_.rbegin(); it != messages_.rend(); ++it) {
         if (it->tool_display == ToolDisplay::SubAgent && it->display_key == key) {
             it->content = report;
+            if (it->subagent_tool_output_started) {
+                it->subagent_transcript += "\n```";
+                it->subagent_tool_output_started = false;
+            }
+            it->subagent_transcript += "\n\n### Final report\n\n" + report;
             it->subagent_running = false;
             it->subagent_success = success;
             return;
@@ -592,7 +636,10 @@ Element ChatView::render_subagent(const DisplayMessage& msg) const
     Elements body;
     if (msg.subagent_expanded) {
         MarkdownRenderer markdown;
-        body.push_back(markdown.render(msg.content.empty() ? "(no report)" : msg.content) |
+        const std::string transcript = msg.subagent_transcript.empty()
+            ? (msg.content.empty() ? "(no report)" : msg.content)
+            : msg.subagent_transcript;
+        body.push_back(markdown.render(transcript) |
                        yframe);
     } else if (!msg.subagent_running && !msg.content.empty()) {
         MarkdownRenderer markdown;
@@ -681,6 +728,11 @@ Element ChatView::render()
         focused_tool_index_ < static_cast<int>(messages_.size())) {
         auto selected = messages_[focused_tool_index_];
         selected.tool_focused = true;
+        if (selected.tool_display == ToolDisplay::Bash) {
+            selected.bash_expanded = true;
+        } else if (selected.tool_display == ToolDisplay::SubAgent) {
+            selected.subagent_expanded = true;
+        }
         return vbox({
             text(" TOOL VIEW  /  " + selected.tool_name + " ") |
                 bold | color(Color::White),

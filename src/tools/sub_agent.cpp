@@ -60,6 +60,12 @@ void emit(const ToolOutputCallback& callback, const std::string& event)
     }
 }
 
+void emit_payload(const ToolOutputCallback& callback, const std::string& kind,
+                  const std::string& payload)
+{
+    emit(callback, kind + "\n" + payload);
+}
+
 json tool_definitions(const ToolRegistry& registry)
 {
     json tools = json::array();
@@ -300,6 +306,10 @@ ToolResult SubAgentTool::execute_stream(const json& params, ToolOutputCallback o
             }};
         }
 
+        if (!response.content.empty()) {
+            emit_payload(on_output, "assistant", response.content);
+        }
+
         Message assistant;
         assistant.role = MessageRole::Assistant;
         assistant.content = response.content;
@@ -322,7 +332,8 @@ ToolResult SubAgentTool::execute_stream(const json& params, ToolOutputCallback o
 
             latest_tool = call.function_name.empty() ? "unknown" : call.function_name;
             ++tools_used;
-            emit(on_output, "tool:" + latest_tool);
+            emit_payload(on_output, "tool_call", latest_tool + "\n" +
+                (call.arguments.empty() ? "{}" : call.arguments));
 
             ToolResult result;
             try {
@@ -333,8 +344,11 @@ ToolResult SubAgentTool::execute_stream(const json& params, ToolOutputCallback o
                     const json arguments = json::parse(call.arguments.empty() ? "{}" : call.arguments);
                     result = tool->execute_stream(
                         arguments,
-                        [this, &on_output, &latest_tool](const std::string&) {
-                            emit(on_output, "output:" + latest_tool);
+                        [&on_output, &latest_tool](const std::string& output) {
+                            if (!output.empty()) {
+                                emit_payload(on_output, "tool_output",
+                                    latest_tool + "\n" + output);
+                            }
                         },
                         should_cancel);
                 }
@@ -343,6 +357,9 @@ ToolResult SubAgentTool::execute_stream(const json& params, ToolOutputCallback o
             } catch (...) {
                 result = ToolResult::fail("Sub-agent tool failed with an unknown error");
             }
+
+            emit_payload(on_output, "tool_result", latest_tool + "\n" +
+                (result.success ? result.output : "Error: " + result.output));
 
             Message tool_message;
             tool_message.role = MessageRole::Tool;

@@ -75,6 +75,8 @@ private:
         std::string subagent_task;
         std::string subagent_latest_tool;
         int subagent_tools_used{0};
+        std::string subagent_transcript;
+        bool subagent_tool_output_started{false};
         bool subagent_expanded{false};
         bool subagent_running{false};
         bool subagent_success{false};
