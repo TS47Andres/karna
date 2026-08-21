@@ -247,7 +247,7 @@ static void add_text_words(Elements& target, const std::string& str)
 static Element render_code_block(const std::string& code)
 {
     if (code.empty())
-        return text("") | border | bgcolor(Color::GrayDark);
+        return text("") | border | color(Color::YellowLight);
     Elements lines;
     std::string line;
     for (size_t i = 0; i < code.size(); ++i) {
@@ -261,7 +261,7 @@ static Element render_code_block(const std::string& code)
     if (!line.empty() || code.back() == '\n')
         lines.push_back(text(line));
     auto content = vbox(std::move(lines));
-    return content | border | bgcolor(Color::GrayDark) | color(Color::YellowLight);
+    return content | border | color(Color::YellowLight);
 }
 
 static Element render_table(const std::vector<unsigned>& col_widths,
@@ -527,7 +527,7 @@ int MarkdownRenderer::leave_span_cb(MD_SPANTYPE type, void* detail, void* userda
             break;
         case MD_SPAN_CODE:
             decorator = [](Element e) {
-                return e | bgcolor(Color::GrayDark) | color(Color::YellowLight);
+                return e | color(Color::YellowLight);
             };
             break;
         case MD_SPAN_DEL:
@@ -611,8 +611,7 @@ int MarkdownRenderer::text_cb(MD_TEXTTYPE type, const MD_CHAR* raw, MD_SIZE size
         if (s.in_table_cell_)
             s.current_cell_text_ += str;
         auto& target = s.inline_stack.empty() ? s.block_stack.back() : s.inline_stack.back();
-        auto code_elem = text(str + " ") |
-            bgcolor(Color::GrayDark) | color(Color::YellowLight);
+        auto code_elem = text(str + " ") | color(Color::YellowLight);
         target.push_back(std::move(code_elem));
         return 0;
     }

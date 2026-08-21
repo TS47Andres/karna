@@ -489,6 +489,19 @@ void Controller::finish_tool_execution(std::vector<ToolExecutionResult> results)
     const bool cancelled = tool_cancel_requested_.load();
     tool_execution_active_.store(false);
 
+    const auto bash_succeeded = [](const ToolExecutionResult& execution) {
+        if (!execution.data.is_object() ||
+            !execution.data.contains("exit_code") ||
+            !execution.data["exit_code"].is_number_integer()) {
+            return false;
+        }
+
+        const int exit_code = execution.data["exit_code"].get<int>();
+        const bool timed_out = execution.data.value("timed_out", false);
+        const bool was_cancelled = execution.data.value("cancelled", false);
+        return exit_code == 0 && !timed_out && !was_cancelled;
+    };
+
     for (const auto& execution : results) {
         const auto& tc = execution.call;
         Message result_msg;
@@ -523,11 +536,11 @@ void Controller::finish_tool_execution(std::vector<ToolExecutionResult> results)
                         std::to_string(line_count) + " result" + (line_count == 1 ? "" : "s");
                 }
             }
-            tui_->chat_view().show_tool_activity(summary);
+            tui_->chat_view().show_tool_activity(tc.function_name, summary);
         } else if (tc.function_name == "bash") {
             if (!execution.display_key.empty()) {
                 tui_->chat_view().finish_bash(
-                    execution.display_key, execution.output, execution.success);
+                    execution.display_key, execution.output, bash_succeeded(execution));
             } else {
                 tui_->chat_view().show_system_message(
                     "bash : command : " + std::to_string(kDefaultBashTimeoutMs) +

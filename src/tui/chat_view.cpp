@@ -16,6 +16,21 @@ std::vector<std::string> split_lines(const std::string& content)
     return lines;
 }
 
+// Bright foreground colors chosen for readability on the black terminal
+// background. Keep these distinct from diff's semantic red/green colors.
+Color tool_color(const std::string& tool_name)
+{
+    if (tool_name == "read") return Color::RGB(105, 195, 255);
+    if (tool_name == "write") return Color::RGB(100, 235, 155);
+    if (tool_name == "edit") return Color::RGB(255, 180, 90);
+    if (tool_name == "bash") return Color::RGB(215, 145, 255);
+    if (tool_name == "sub_agent") return Color::RGB(255, 135, 205);
+    if (tool_name == "glob") return Color::RGB(75, 225, 195);
+    if (tool_name == "grep") return Color::RGB(255, 220, 95);
+    if (tool_name == "search") return Color::RGB(120, 165, 255);
+    return Color::GrayLight;
+}
+
 } // namespace
 
 ChatView::ChatView()
@@ -88,12 +103,13 @@ void ChatView::show_system_message(const std::string& msg)
     messages_.push_back({MessageRole::System, msg});
 }
 
-void ChatView::show_tool_activity(const std::string& label)
+void ChatView::show_tool_activity(const std::string& tool_name, const std::string& label)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     DisplayMessage message;
     message.role = MessageRole::Tool;
     message.content = label;
+    message.tool_name = tool_name;
     message.tool_display = ToolDisplay::Activity;
     messages_.push_back(std::move(message));
 }
@@ -443,7 +459,11 @@ Element ChatView::render_message(const DisplayMessage& msg) const
     }
 
     if (msg.role == MessageRole::Tool && msg.tool_display == ToolDisplay::Activity) {
-        return text("-> " + msg.content) | color(Color::GrayDark) | dim;
+        const auto accent = tool_color(msg.tool_name);
+        return hbox({
+            text("-> ") | color(accent) | bold,
+            paragraph(msg.content) | color(accent) | flex,
+        });
 #if 0
         return vbox({
             text("→ " + msg.content) | color(Color::GrayDark) | dim,
@@ -466,6 +486,7 @@ Element ChatView::render_message(const DisplayMessage& msg) const
     }
 
     if (msg.role == MessageRole::Tool) {
+        const auto accent = tool_color(msg.name);
         std::string tool_header = " [Tool: " + (msg.name.empty() ? "unknown" : msg.name) + "] ";
         Elements elements;
         std::stringstream ss(msg.content);
@@ -479,10 +500,10 @@ Element ChatView::render_message(const DisplayMessage& msg) const
         }
         return vbox({
             vbox({
-                text(tool_header) | bold | color(Color::White),
+                text(tool_header) | bold | color(accent),
                 separator() | color(Color::GrayDark),
                 vbox(std::move(elements)) | color(Color::GrayLight) | dim,
-            }) | borderRounded | color(Color::GrayDark),
+            }) | borderRounded | color(accent),
         });
     }
 
@@ -499,6 +520,7 @@ Element ChatView::render_message(const DisplayMessage& msg) const
 
 Element ChatView::render_tool_diff(const DisplayMessage& msg) const
 {
+    const auto accent = tool_color(msg.tool_name);
     const auto before = split_lines(msg.before);
     const auto after = split_lines(msg.after);
 
@@ -560,17 +582,18 @@ Element ChatView::render_tool_diff(const DisplayMessage& msg) const
     return vbox({
         hbox({
             text(" " + msg.tool_name + " : " + msg.tool_parameter + " : " + msg.tool_extra + " ") |
-                bold | color(Color::White),
+                bold | color(accent),
             filler(),
             text(" diff ") | color(Color::GrayDark) | dim,
         }),
         separator() | color(Color::GrayDark),
         vbox(std::move(lines)),
-    }) | borderRounded | color(Color::GrayDark);
+    }) | borderRounded | color(accent);
 }
 
 Element ChatView::render_bash(const DisplayMessage& msg) const
 {
+    const auto accent = tool_color(msg.tool_name);
     Elements output_lines;
     const auto lines = split_lines(msg.content);
     const size_t visible_lines = 5;
@@ -596,7 +619,7 @@ Element ChatView::render_bash(const DisplayMessage& msg) const
     auto header = hbox({
         text(msg.tool_focused ? " > " : " " ) |
             bold | color(msg.tool_focused ? Color::CyanLight : Color::White),
-        text(msg.tool_name + " : ") | bold | color(Color::White),
+        text(msg.tool_name + " : ") | bold | color(accent),
         paragraph(msg.tool_parameter) | color(Color::White) | flex,
         text(" : " + msg.tool_extra + state + " ") | color(Color::GrayDark),
     });
@@ -611,11 +634,12 @@ Element ChatView::render_bash(const DisplayMessage& msg) const
     }
 
     return panel | borderRounded |
-        color(msg.tool_focused ? Color::CyanLight : Color::GrayDark);
+        color(msg.tool_focused ? Color::CyanLight : accent);
 }
 
 Element ChatView::render_subagent(const DisplayMessage& msg) const
 {
+    const auto accent = tool_color(msg.tool_name);
     const std::string state = msg.subagent_running ? "running" :
         (msg.subagent_success ? "done" : "failed");
     const std::string latest = msg.subagent_latest_tool.empty()
@@ -626,7 +650,7 @@ Element ChatView::render_subagent(const DisplayMessage& msg) const
         text(msg.tool_focused ? " > " : " ") |
             bold | color(msg.tool_focused ? Color::CyanLight : Color::White),
         text("sub_agent : " + msg.subagent_mode + " : ") |
-            bold | color(Color::White),
+            bold | color(accent),
         paragraph(msg.subagent_task) | color(Color::White) | flex,
         text(" : " + std::to_string(msg.subagent_tools_used) +
              " tools · " + latest + " · " + state + " ") |
@@ -661,7 +685,7 @@ Element ChatView::render_subagent(const DisplayMessage& msg) const
         panel = panel | size(HEIGHT, EQUAL, msg.subagent_running ? 4 : 5);
     }
     return panel | borderRounded |
-        color(msg.tool_focused ? Color::CyanLight : Color::GrayDark);
+        color(msg.tool_focused ? Color::CyanLight : accent);
 }
 
 namespace {
@@ -735,7 +759,7 @@ Element ChatView::render()
         }
         return vbox({
             text(" TOOL VIEW  /  " + selected.tool_name + " ") |
-                bold | color(Color::White),
+                bold | color(tool_color(selected.tool_name)),
             separator() | color(Color::GrayDark),
             render_message(selected) | flex,
             text(""),

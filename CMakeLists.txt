@@ -48,8 +48,9 @@ unset(_ftxui_screen)
 
 # Patch FTXUI screen cursor handling for redraws:
 # 1. Start with a deterministic hidden cursor instead of an uninitialized shape
-# 2. Keep the cursor hidden while the complete frame is written, then reveal it
-#    only at the final input position. This prevents origin/end cursor flashes.
+# 2. Hide the terminal cursor before moving to the frame origin and keep it
+#    hidden while the complete frame is written. Reveal it only at the final
+#    input position. This prevents origin/end cursor flashes.
 set(_ftxui_screen_header "${ftxui_SOURCE_DIR}/include/ftxui/screen/screen.hpp")
 if(EXISTS "${_ftxui_screen_header}")
   file(READ "${_ftxui_screen_header}" _screen_header_src)
@@ -62,11 +63,25 @@ set(_ftxui_screen_impl "${ftxui_SOURCE_DIR}/src/ftxui/component/screen_interacti
 if(EXISTS "${_ftxui_screen_impl}")
   file(READ "${_ftxui_screen_impl}" _screen_impl_src)
   string(ASCII 92 _backslash)
-  set(_cursor_safe_write "  std::cout << \"${_backslash}033[?25l\" << ToString() << set_cursor_position;")
+  # Hide before ResetCursorPosition()/ResetPosition(). Those operations move
+  # the real terminal cursor through the origin and bottom-right of the frame.
+  set(_cursor_hide "  std::cout << \"${_backslash}033[?25l\";")
+  set(_cursor_hide_before_reset "${_cursor_hide}\n  ResetCursorPosition();\n  std::cout << ResetPosition")
+  string(FIND "${_screen_impl_src}" "${_cursor_hide_before_reset}" _cursor_hide_pos)
+  if(_cursor_hide_pos EQUAL -1)
+    string(REPLACE "  ResetCursorPosition();\n  std::cout << ResetPosition" "${_cursor_hide_before_reset}" _screen_impl_src "${_screen_impl_src}")
+  endif()
+
+  # Keep the write itself free of cursor visibility changes. The final
+  # set_cursor_position sequence already reveals the cursor at its destination.
+  set(_cursor_safe_write "  std::cout << ToString() << set_cursor_position;")
   set(_cursor_bad_write "  std::cout << \"${_backslash}${_backslash}x1B[?25l\" << ToString() << set_cursor_position;")
   string(REPLACE "${_cursor_bad_write}" "${_cursor_safe_write}" _screen_impl_src "${_screen_impl_src}")
-  string(REPLACE "  std::cout << ToString() << set_cursor_position;" "${_cursor_safe_write}" _screen_impl_src "${_screen_impl_src}")
+  string(REPLACE "  std::cout << \"${_backslash}033[?25l\" << ToString() << set_cursor_position;" "${_cursor_safe_write}" _screen_impl_src "${_screen_impl_src}")
   unset(_backslash)
+  unset(_cursor_hide)
+  unset(_cursor_hide_before_reset)
+  unset(_cursor_hide_pos)
   unset(_cursor_bad_write)
   unset(_cursor_safe_write)
   file(WRITE "${_ftxui_screen_impl}" "${_screen_impl_src}")

@@ -80,6 +80,17 @@ TEST_CASE("BashTool streams output and reports timeout metadata", "[tools]")
     REQUIRE_THAT(result.output, Catch::Matchers::ContainsSubstring("streamed"));
 }
 
+TEST_CASE("BashTool reports nonzero exit codes as failures", "[tools]")
+{
+    BashTool tool;
+    auto result = tool.execute_stream(
+        json::parse(R"({"command": "exit 7"})"), {});
+
+    REQUIRE_FALSE(result.success);
+    REQUIRE(result.data["exit_code"] == 7);
+    REQUIRE_THAT(result.output, Catch::Matchers::ContainsSubstring("Exit code: 7"));
+}
+
 TEST_CASE("SubAgentTool exposes read and read-write modes", "[tools]")
 {
     SubAgentTool tool(

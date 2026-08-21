@@ -20,7 +20,7 @@ public:
     void add_delta(const Delta& delta);
     void append_tool_call(const std::string& text);
     void show_system_message(const std::string& msg);
-    void show_tool_activity(const std::string& label);
+    void show_tool_activity(const std::string& tool_name, const std::string& label);
     void show_tool_diff(const std::string& tool_name, const std::string& path,
                         const std::string& before, const std::string& after);
     void show_bash_started(const std::string& key, const std::string& command,
