@@ -1,4 +1,5 @@
 #include "tui/markdown_renderer.h"
+#include <ftxui/screen/string.hpp>
 #include <sstream>
 #include <algorithm>
 #include <cctype>
@@ -29,6 +30,17 @@ void MarkdownRenderer::pop_block(Element elem)
     } else if (elem) {
         state_.block_stack.back().push_back(std::move(elem));
     }
+}
+
+void MarkdownRenderer::append_document_block(Element elem)
+{
+    if (state_.block_stack.empty())
+        return;
+
+    auto& target = state_.block_stack.back();
+    if (state_.block_stack.size() == 1 && !target.empty())
+        target.push_back(text(""));
+    target.push_back(std::move(elem));
 }
 
 void MarkdownRenderer::push_inline()
@@ -264,44 +276,179 @@ static Element render_code_block(const std::string& code)
     return content | border | color(Color::YellowLight);
 }
 
-static Element render_table(const std::vector<unsigned>& col_widths,
+static std::string normalize_table_cell(std::string value)
+{
+    std::string normalized;
+    bool pending_space = false;
+    for (char character : value) {
+        if (std::isspace(static_cast<unsigned char>(character))) {
+            pending_space = true;
+        } else {
+            if (pending_space && !normalized.empty())
+                normalized.push_back(' ');
+            normalized.push_back(character);
+            pending_space = false;
+        }
+    }
+    return normalized;
+}
+
+static std::vector<std::string> split_long_table_word(const std::string& word,
+                                                        unsigned width)
+{
+    std::vector<std::string> chunks;
+    std::string chunk;
+    unsigned chunk_width = 0;
+    for (const auto& glyph : Utf8ToGlyphs(word)) {
+        const unsigned glyph_width = static_cast<unsigned>(string_width(glyph));
+        if (!chunk.empty() && chunk_width + glyph_width > width) {
+            chunks.push_back(std::move(chunk));
+            chunk.clear();
+            chunk_width = 0;
+        }
+        chunk += glyph;
+        chunk_width += glyph_width;
+    }
+    if (!chunk.empty())
+        chunks.push_back(std::move(chunk));
+    return chunks;
+}
+
+static std::vector<std::string> wrap_table_cell(const std::string& value,
+                                                 unsigned width)
+{
+    if (width == 0)
+        return {""};
+
+    std::vector<std::string> lines;
+    std::istringstream words(value);
+    std::string word;
+    std::string current;
+    while (words >> word) {
+        if (static_cast<unsigned>(string_width(word)) > width) {
+            if (!current.empty()) {
+                lines.push_back(std::move(current));
+                current.clear();
+            }
+            auto chunks = split_long_table_word(word, width);
+            for (size_t index = 0; index + 1 < chunks.size(); ++index)
+                lines.push_back(std::move(chunks[index]));
+            if (!chunks.empty())
+                current = std::move(chunks.back());
+        } else if (current.empty()) {
+            current = word;
+        } else if (static_cast<unsigned>(string_width(current)) + 1 +
+                   static_cast<unsigned>(string_width(word)) <= width) {
+            current += " " + word;
+        } else {
+            lines.push_back(std::move(current));
+            current = word;
+        }
+    }
+
+    if (!current.empty())
+        lines.push_back(std::move(current));
+    if (lines.empty())
+        lines.push_back("");
+    return lines;
+}
+
+static Element render_table(const std::vector<unsigned>&,
                             const std::vector<std::vector<std::string>>& cell_texts,
                             bool has_header)
 {
-    Elements output;
-    for (size_t r = 0; r < cell_texts.size(); ++r) {
-        Elements row_cells;
-        row_cells.push_back(text("│ ") | color(Color::White) | dim);
-        for (size_t c = 0; c < col_widths.size(); ++c) {
-            std::string cell_str;
-            if (c < cell_texts[r].size())
-                cell_str = cell_texts[r][c];
-            unsigned w = (c < col_widths.size()) ? col_widths[c] : 0;
-            if (cell_str.size() < w)
-                cell_str.append(w - cell_str.size(), ' ');
-            auto cell = text(cell_str) | color(Color::White);
-            if (r == 0 && has_header)
-                cell = cell | bold;
-            row_cells.push_back(cell);
-            if (c < col_widths.size() - 1)
-                row_cells.push_back(text("│ ") | color(Color::White) | dim);
-            else
-                row_cells.push_back(text("│") | color(Color::White) | dim);
+    if (cell_texts.empty())
+        return text("");
+
+    size_t column_count = 0;
+    for (const auto& row : cell_texts)
+        column_count = std::max(column_count, row.size());
+    if (column_count == 0)
+        return text("");
+
+    std::vector<std::vector<std::string>> normalized_cells;
+    normalized_cells.reserve(cell_texts.size());
+    std::vector<unsigned> natural_widths(column_count, 0);
+    for (const auto& row : cell_texts) {
+        std::vector<std::string> normalized_row;
+        normalized_row.reserve(column_count);
+        for (size_t column = 0; column < column_count; ++column) {
+            const std::string value = column < row.size()
+                ? normalize_table_cell(row[column])
+                : "";
+            natural_widths[column] = std::max(
+                natural_widths[column], static_cast<unsigned>(string_width(value)));
+            normalized_row.push_back(value);
         }
-        output.push_back(hbox(std::move(row_cells)));
-        if (r == 0 && has_header) {
-            Elements sep_cells;
-            for (size_t c = 0; c < col_widths.size(); ++c) {
-                std::string dashes;
-                for (unsigned w = 0; w < col_widths[c]; ++w)
-                    dashes += "─";
-                sep_cells.push_back(text("─┼─") | color(Color::White) | dim);
-                sep_cells.push_back(text(dashes) | color(Color::White) | dim);
-            }
-            sep_cells.push_back(text("─") | color(Color::White) | dim);
-            output.push_back(hbox(std::move(sep_cells)));
-        }
+        normalized_cells.push_back(std::move(normalized_row));
     }
+
+    constexpr unsigned kMaxTableWidth = 96;
+    const unsigned border_width = static_cast<unsigned>(3 * column_count + 1);
+    const unsigned available_width = kMaxTableWidth > border_width
+        ? kMaxTableWidth - border_width
+        : static_cast<unsigned>(column_count);
+    const unsigned minimum_column_width = std::max(
+        1u, std::min(8u, available_width / static_cast<unsigned>(column_count)));
+    std::vector<unsigned> column_widths = natural_widths;
+    for (auto& width : column_widths)
+        width = std::max(width, minimum_column_width);
+
+    unsigned total_width = 0;
+    for (const auto width : column_widths)
+        total_width += width;
+    while (total_width > available_width) {
+        auto widest = std::max_element(column_widths.begin(), column_widths.end());
+        if (widest == column_widths.end() || *widest <= minimum_column_width)
+            break;
+        --*widest;
+        --total_width;
+    }
+
+    auto padded = [](std::string value, unsigned width) {
+        const unsigned current_width = static_cast<unsigned>(string_width(value));
+        if (current_width < width)
+            value.append(width - current_width, ' ');
+        return value;
+    };
+
+    Elements output;
+    std::string border = "+";
+    for (const auto width : column_widths)
+        border += std::string(width + 2, '-') + "+";
+    output.push_back(text(border) | color(Color::GrayDark));
+
+    for (size_t row_index = 0; row_index < normalized_cells.size(); ++row_index) {
+        std::vector<std::vector<std::string>> wrapped;
+        wrapped.reserve(column_count);
+        size_t row_height = 1;
+        for (size_t column = 0; column < column_count; ++column) {
+            auto lines = wrap_table_cell(
+                normalized_cells[row_index][column], column_widths[column]);
+            row_height = std::max(row_height, lines.size());
+            wrapped.push_back(std::move(lines));
+        }
+
+        for (size_t line_index = 0; line_index < row_height; ++line_index) {
+            std::string line = "| ";
+            for (size_t column = 0; column < column_count; ++column) {
+                const std::string cell = line_index < wrapped[column].size()
+                    ? wrapped[column][line_index]
+                    : "";
+                line += padded(cell, column_widths[column]);
+                line += column + 1 < column_count ? " | " : " |";
+            }
+            auto element = text(line) | color(Color::White);
+            if (row_index == 0 && has_header)
+                element = element | bold;
+            output.push_back(std::move(element));
+        }
+
+        if (row_index == 0 && has_header)
+            output.push_back(text(border) | color(Color::GrayDark));
+    }
+
+    output.push_back(text(border) | color(Color::GrayDark));
     return vbox(std::move(output));
 }
 
@@ -339,7 +486,7 @@ int MarkdownRenderer::enter_block_cb(MD_BLOCKTYPE type, void* detail, void* user
             break;
         }
         case MD_BLOCK_HR:
-            s.block_stack.back().push_back(separator());
+            self->append_document_block(separator());
             break;
         case MD_BLOCK_TABLE: {
             auto* td = static_cast<MD_BLOCK_TABLE_DETAIL*>(detail);
@@ -395,7 +542,7 @@ int MarkdownRenderer::leave_block_cb(MD_BLOCKTYPE type, void* detail, void* user
             }
             s.paragraph_lines_.clear();
             if (!lines.empty())
-                s.block_stack.back().push_back(vbox(std::move(lines)));
+                self->append_document_block(vbox(std::move(lines)));
             break;
         }
         case MD_BLOCK_H: {
@@ -415,21 +562,21 @@ int MarkdownRenderer::leave_block_cb(MD_BLOCKTYPE type, void* detail, void* user
                 lines.push_back(std::move(l));
             s.paragraph_lines_.clear();
             auto content = vbox(std::move(lines)) | bold | color(heading_colors[idx]);
-            s.block_stack.back().push_back(std::move(content));
+            self->append_document_block(std::move(content));
             break;
         }
         case MD_BLOCK_CODE: {
             s.in_code_block = false;
             auto code_elem = render_code_block(s.code_text_);
             s.code_text_.clear();
-            s.block_stack.back().push_back(std::move(code_elem));
+            self->append_document_block(std::move(code_elem));
             break;
         }
         case MD_BLOCK_UL:
         case MD_BLOCK_OL: {
             auto children = std::move(s.block_stack.back());
             s.block_stack.pop_back();
-            s.block_stack.back().push_back(vbox(std::move(children)));
+            self->append_document_block(vbox(std::move(children)));
             s.list_counter = 0;
             break;
         }
@@ -461,7 +608,7 @@ int MarkdownRenderer::leave_block_cb(MD_BLOCKTYPE type, void* detail, void* user
             auto children = std::move(s.block_stack.back());
             s.block_stack.pop_back();
             auto content = vbox(std::move(children)) | border | dim;
-            s.block_stack.back().push_back(std::move(content));
+            self->append_document_block(std::move(content));
             break;
         }
         case MD_BLOCK_HR:
@@ -488,7 +635,7 @@ int MarkdownRenderer::leave_block_cb(MD_BLOCKTYPE type, void* detail, void* user
         case MD_BLOCK_TABLE: {
             auto table = render_table(
                 s.table_col_widths, s.table_cell_texts, s.table_has_header);
-            s.block_stack.back().push_back(std::move(table));
+            self->append_document_block(std::move(table));
             break;
         }
         case MD_BLOCK_THEAD:

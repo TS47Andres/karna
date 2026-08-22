@@ -38,6 +38,7 @@ private:
 
     void push_block();
     void pop_block(ftxui::Element elem);
+    void append_document_block(ftxui::Element elem);
     void push_inline();
     ftxui::Elements pop_inline(ftxui::Decorator decorator);
     void commit_inline_to_block();
