@@ -187,7 +187,9 @@ Component InputBar::build()
         if (event == Event::Return) {
             std::string text = *input_content_;
             if (!text.empty()) {
-                bool sensitive = text.rfind("/connect ", 0) == 0 || text.rfind("/setup ", 0) == 0;
+                bool sensitive = text.rfind("/connect ", 0) == 0 ||
+                    text.rfind("/setup ", 0) == 0 ||
+                    text.rfind("/connect-exa ", 0) == 0;
                 if (!sensitive) {
                     history_.push_back(text);
                 }

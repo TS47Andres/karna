@@ -24,7 +24,8 @@ public:
     void show_tool_diff(const std::string& tool_name, const std::string& path,
                         const std::string& before, const std::string& after);
     void show_bash_started(const std::string& key, const std::string& command,
-                           const std::string& timeout_label);
+                           const std::string& timeout_label,
+                           const std::string& tool_name = "bash");
     void append_bash_output(const std::string& key, const std::string& output);
     void finish_bash(const std::string& key, const std::string& output, bool success);
     void toggle_bash_view();

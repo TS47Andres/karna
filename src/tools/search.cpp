@@ -16,6 +16,11 @@ SearchTool::SearchTool(ExaConfig config)
     : config_(std::move(config))
 {}
 
+void SearchTool::set_api_key(const std::string& api_key)
+{
+    config_.api_key = api_key;
+}
+
 std::string SearchTool::name() const { return "search"; }
 
 std::string SearchTool::description() const

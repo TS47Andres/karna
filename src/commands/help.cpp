@@ -2,7 +2,6 @@
 #include "core/command.h"
 #include "core/session.h"
 #include "core/tool.h"
-#include "core/skill.h"
 #include "commands/registry.h"
 #include "tui/chat_view.h"
 #include <sstream>
@@ -25,12 +24,6 @@ void HelpCommand::execute(const std::string& /*args*/, CommandContext& ctx)
         help << "\nAvailable tools:\n";
         for (const auto* t : ctx.tool_registry->all()) {
             help << "  " << t->name() << " - " << t->description() << "\n";
-        }
-    }
-    if (ctx.skill_registry) {
-        help << "\nAvailable skills:\n";
-        for (const auto* s : ctx.skill_registry->all()) {
-            help << "  /" << s->name() << " - " << s->description() << "\n";
         }
     }
     ctx.chat_view.show_system_message(help.str());

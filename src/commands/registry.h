@@ -5,7 +5,6 @@
 #include "commands/clear.h"
 #include "commands/model.h"
 #include "commands/tokens.h"
-#include "commands/skills_list.h"
 #include "commands/cost.h"
 #include "commands/export_cmd.h"
 #include "commands/session_cmd.h"

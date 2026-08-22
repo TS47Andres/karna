@@ -54,11 +54,6 @@ void Controller::setup_tools()
     tool_registry_.register_tool(std::make_unique<GrepTool>());
 }
 
-void Controller::setup_skills()
-{
-    SkillInitializer::register_all(skill_registry_);
-}
-
 void Controller::setup_commands()
 {
     CommandInitializer::register_all(command_registry_);
@@ -84,21 +79,11 @@ void Controller::build_tools_json()
         tool["function"]["parameters"] = t->parameters();
         tools_json_.push_back(tool);
     }
-    for (const auto* s : skill_registry_.all()) {
-        json tool;
-        tool["type"] = "function";
-        tool["function"] = json::object();
-        tool["function"]["name"] = s->name();
-        tool["function"]["description"] = s->description();
-        tool["function"]["parameters"] = s->parameters();
-        tools_json_.push_back(tool);
-    }
 }
 
 void Controller::run_chat(const std::string& initial_prompt)
 {
     setup_tools();
-    setup_skills();
     setup_commands();
     setup_provider();
     build_tools_json();
@@ -167,7 +152,8 @@ void Controller::handle_slash_command(const std::string& cmd, const std::string&
             &tool_registry_,
             &skill_registry_,
             [this]() { tui_->request_refresh(); },
-            [this](const std::string& key) { set_api_key(key); }
+            [this](const std::string& key) { set_api_key(key); },
+            [this](const std::string& key) { set_exa_api_key(key); }
         };
         command->execute(args, ctx);
         if (session_.model() != previous_model) {
@@ -365,12 +351,6 @@ void Controller::execute_tool_calls_and_continue(std::map<int, ToolCall> tool_ca
                     }
 
                     Tool* tool = tool_registry_.find(tc.function_name);
-                    if (!tool) {
-                        Skill* skill = skill_registry_.find(tc.function_name);
-                        if (skill) {
-                            tool = skill;
-                        }
-                    }
 
                     if (!tool) {
                         execution.output = "Unknown tool '" + tc.function_name + "'";
@@ -401,6 +381,15 @@ void Controller::execute_tool_calls_and_continue(std::map<int, ToolCall> tool_ca
                                         tui_->chat_view().append_bash_output(key, output);
                                     });
                                 };
+                            } else if (tc.function_name == "search") {
+                                execution.display_key = "search-" +
+                                    std::to_string(tool_display_sequence_.fetch_add(1));
+                                const std::string key = execution.display_key;
+                                const std::string query = args.value("query", "");
+                                tui_->post([this, key, query]() {
+                                    tui_->chat_view().show_bash_started(
+                                        key, query, "Exa", "search");
+                                });
                             } else if (tc.function_name == "sub_agent") {
                                 execution.display_key = "sub-agent-" +
                                     std::to_string(tool_display_sequence_.fetch_add(1));
@@ -537,13 +526,16 @@ void Controller::finish_tool_execution(std::vector<ToolExecutionResult> results)
                 }
             }
             tui_->chat_view().show_tool_activity(tc.function_name, summary);
-        } else if (tc.function_name == "bash") {
+        } else if (tc.function_name == "bash" || tc.function_name == "search") {
+            const bool succeeded = tc.function_name == "bash"
+                ? bash_succeeded(execution)
+                : execution.success;
             if (!execution.display_key.empty()) {
                 tui_->chat_view().finish_bash(
-                    execution.display_key, execution.output, bash_succeeded(execution));
+                    execution.display_key, execution.output, succeeded);
             } else {
                 tui_->chat_view().show_system_message(
-                    "bash : command : " + std::to_string(kDefaultBashTimeoutMs) +
+                    tc.function_name + " : command : " + std::to_string(kDefaultBashTimeoutMs) +
                     "ms : " + execution.output);
             }
         } else if (tc.function_name == "sub_agent") {
@@ -564,7 +556,6 @@ void Controller::finish_tool_execution(std::vector<ToolExecutionResult> results)
                 execution.data.value("before", ""),
                 execution.data.value("after", ""));
         } else {
-            tui_->chat_view().show_system_message("Tool '" + tc.function_name + "' executed");
             tui_->chat_view().add_message(result_msg);
         }
     }
@@ -650,5 +641,18 @@ void Controller::set_api_key(const std::string& api_key)
     model_catalog_ = provider->available_models();
     tui_->input_bar().set_models(model_catalog_);
     tui_->sidebar().set_context(session_.context_usage(), provider->context_window());
+    tui_->request_refresh();
+}
+
+void Controller::set_exa_api_key(const std::string& api_key)
+{
+    config_.exa.api_key = api_key;
+    config_.save();
+
+    auto* search_tool = dynamic_cast<SearchTool*>(tool_registry_.find("search"));
+    if (search_tool) {
+        search_tool->set_api_key(api_key);
+    }
+
     tui_->request_refresh();
 }

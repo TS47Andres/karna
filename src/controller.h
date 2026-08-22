@@ -63,7 +63,6 @@ private:
     std::thread tool_worker_;
 
     void setup_tools();
-    void setup_skills();
     void setup_commands();
     void setup_provider();
 
@@ -83,4 +82,5 @@ private:
     void handle_escape_key();
     void reset_abort_pending();
     void set_api_key(const std::string& api_key);
+    void set_exa_api_key(const std::string& api_key);
 };

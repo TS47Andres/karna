@@ -5,8 +5,9 @@
 #include <cctype>
 #include <utility>
 
-ConnectCommand::ConnectCommand(std::string command_name)
+ConnectCommand::ConnectCommand(std::string command_name, bool exa_key)
     : command_name_(std::move(command_name))
+    , exa_key_(exa_key)
 {}
 
 std::string ConnectCommand::name() const
@@ -16,7 +17,9 @@ std::string ConnectCommand::name() const
 
 std::string ConnectCommand::description() const
 {
-    return "Save an API key. Usage: /" + command_name_ + " <api-key>";
+    return exa_key_
+        ? "Save an Exa AI API key. Usage: /" + command_name_ + " <api-key>"
+        : "Save an API key. Usage: /" + command_name_ + " <api-key>";
 }
 
 void ConnectCommand::execute(const std::string& args, CommandContext& ctx)
@@ -35,13 +38,14 @@ void ConnectCommand::execute(const std::string& args, CommandContext& ctx)
         return;
     }
 
-    if (!ctx.set_api_key) {
+    auto setter = exa_key_ ? ctx.set_exa_api_key : ctx.set_api_key;
+    if (!setter) {
         ctx.chat_view.show_system_message("API key setup is unavailable.");
         ctx.request_rerender();
         return;
     }
 
-    ctx.set_api_key(key);
-    ctx.chat_view.show_system_message("API key saved.");
+    setter(key);
+    ctx.chat_view.show_system_message(exa_key_ ? "Exa AI API key saved." : "API key saved.");
     ctx.request_rerender();
 }

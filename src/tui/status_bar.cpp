@@ -46,13 +46,13 @@ bool StatusBar::is_typing() const
 Element StatusBar::render()
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto model_elem = text(" " + model_) | color(Color::White) | bold;
+    auto model_elem = text(" " + model_) | color(Color::Red) | bold;
     
     Element status_elem;
     Color status_color = Color::GrayDark;
     
     if (status_ == "Thinking...") {
-        status_color = Color::White;
+        status_color = Color::Cyan;
     } else if (status_ == "Running tools...") {
         status_color = Color::GrayLight;
     } else if (status_ == "Ready") {

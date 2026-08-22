@@ -19,6 +19,7 @@ struct CommandContext {
     SkillRegistry* skill_registry{nullptr};
     std::function<void()> request_rerender;
     std::function<void(const std::string&)> set_api_key;
+    std::function<void(const std::string&)> set_exa_api_key;
 };
 
 class Command {

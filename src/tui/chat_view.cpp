@@ -336,12 +336,13 @@ void ChatView::show_tool_diff(
 void ChatView::show_bash_started(
     const std::string& key,
     const std::string& command,
-    const std::string& timeout_label)
+    const std::string& timeout_label,
+    const std::string& tool_name)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     DisplayMessage message;
     message.role = MessageRole::Tool;
-    message.tool_name = "bash";
+    message.tool_name = tool_name;
     message.tool_parameter = command;
     message.tool_extra = timeout_label;
     message.display_key = key;
@@ -907,6 +908,7 @@ Element render_welcome_screen(const std::string& model)
         text("QUICK START") | bold | color(Color::GrayLight),
         command_row("/model", "switch the active model"),
         command_row("/setup", "save your API key"),
+        command_row("/connect-exa", "save your Exa API key"),
         command_row("/help", "see all commands"),
     }) | size(WIDTH, LESS_THAN, 72);
 

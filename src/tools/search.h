@@ -11,6 +11,7 @@ public:
     std::string description() const override;
     json parameters() const override;
     ToolResult execute(const json& params) override;
+    void set_api_key(const std::string& api_key);
 
 private:
     ExaConfig config_;
