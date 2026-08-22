@@ -59,29 +59,92 @@ if(EXISTS "${_ftxui_screen_header}")
 endif()
 unset(_ftxui_screen_header)
 
+set(_ftxui_screen_interactive_header "${ftxui_SOURCE_DIR}/include/ftxui/component/screen_interactive.hpp")
+if(EXISTS "${_ftxui_screen_interactive_header}")
+  file(READ "${_ftxui_screen_interactive_header}" _screen_interactive_header_src)
+  string(REPLACE
+    "  bool cursor_initialized_ = false;\n  Cursor::Shape rendered_cursor_shape_ = Cursor::Hidden;\n\n  bool cursor_initialized_ = false;\n  Cursor::Shape rendered_cursor_shape_ = Cursor::Hidden;"
+    "  bool cursor_initialized_ = false;\n  Cursor::Shape rendered_cursor_shape_ = Cursor::Hidden;"
+    _screen_interactive_header_src "${_screen_interactive_header_src}")
+  string(FIND "${_screen_interactive_header_src}" "  bool cursor_initialized_ = false;" _cursor_state_pos)
+  if(_cursor_state_pos EQUAL -1)
+    string(REPLACE
+      "  std::string reset_cursor_position;"
+      "  std::string reset_cursor_position;\n\n  bool cursor_initialized_ = false;\n  Cursor::Shape rendered_cursor_shape_ = Cursor::Hidden;"
+      _screen_interactive_header_src "${_screen_interactive_header_src}")
+  endif()
+  unset(_cursor_state_pos)
+  file(WRITE "${_ftxui_screen_interactive_header}" "${_screen_interactive_header_src}")
+endif()
+unset(_ftxui_screen_interactive_header)
+
 set(_ftxui_screen_impl "${ftxui_SOURCE_DIR}/src/ftxui/component/screen_interactive.cpp")
 if(EXISTS "${_ftxui_screen_impl}")
   file(READ "${_ftxui_screen_impl}" _screen_impl_src)
   string(ASCII 92 _backslash)
-  # Hide before ResetCursorPosition()/ResetPosition(). Those operations move
-  # the real terminal cursor through the origin and bottom-right of the frame.
-  set(_cursor_hide "  std::cout << \"${_backslash}033[?25l\";")
-  set(_cursor_hide_before_reset "${_cursor_hide}\n  ResetCursorPosition();\n  std::cout << ResetPosition")
-  string(FIND "${_screen_impl_src}" "${_cursor_hide_before_reset}" _cursor_hide_pos)
+  # Hide only on the first frame or a resize. Repeating hide/show on every
+  # redraw resets the terminal's blinking cursor and makes it flicker.
+  set(_cursor_hide_block
+    "  const bool hide_cursor_for_frame = resized || !cursor_initialized_;\n  if (hide_cursor_for_frame) {\n    std::cout << \"${_backslash}033[?25l\";\n  }\n")
+  string(REPLACE ";  if (hide_cursor_for_frame)" "  if (hide_cursor_for_frame)" _screen_impl_src "${_screen_impl_src}")
+  string(REPLACE ";    std::cout << \"${_backslash}033[?25l\";" "    std::cout << \"${_backslash}033[?25l\";" _screen_impl_src "${_screen_impl_src}")
+  string(REPLACE ";  }" "  }" _screen_impl_src "${_screen_impl_src}")
+  string(REPLACE ";  ResetCursorPosition();" "  ResetCursorPosition();" _screen_impl_src "${_screen_impl_src}")
+  string(REPLACE ";  std::cout << ResetPosition" "  std::cout << ResetPosition" _screen_impl_src "${_screen_impl_src}")
+  string(REPLACE
+    "  std::cout << \"${_backslash}033[?25l\";\n  const bool hide_cursor_for_frame"
+    "  const bool hide_cursor_for_frame"
+    _screen_impl_src "${_screen_impl_src}")
+  set(_cursor_old_before_reset "  std::cout << \"${_backslash}033[?25l\";\n  ResetCursorPosition();\n  std::cout << ResetPosition")
+  set(_cursor_new_before_reset "${_cursor_hide_block}  ResetCursorPosition();\n  std::cout << ResetPosition")
+  string(REPLACE "${_cursor_old_before_reset}" "${_cursor_new_before_reset}" _screen_impl_src "${_screen_impl_src}")
+  set(_cursor_hide_pos -1)
+  string(FIND "${_screen_impl_src}" "${_cursor_hide_block}" _cursor_hide_pos)
   if(_cursor_hide_pos EQUAL -1)
-    string(REPLACE "  ResetCursorPosition();\n  std::cout << ResetPosition" "${_cursor_hide_before_reset}" _screen_impl_src "${_screen_impl_src}")
+    string(REPLACE
+      "  ResetCursorPosition();\n  std::cout << ResetPosition"
+      "${_cursor_new_before_reset}"
+      _screen_impl_src "${_screen_impl_src}")
   endif()
 
-  # Keep the write itself free of cursor visibility changes. The final
-  # set_cursor_position sequence already reveals the cursor at its destination.
+  # Reapply visibility and shape only when necessary. This preserves the
+  # terminal's blink phase during ordinary input, typing, and scroll redraws.
+  set(_cursor_shape_old [=[
+    if (cursor_.shape == Cursor::Hidden) {
+      set_cursor_position += "\033[?25l";
+    } else {
+      set_cursor_position += "\033[?25h";
+      set_cursor_position +=
+          "\033[" + std::to_string(int(cursor_.shape)) + " q";
+    }
+]=])
+  set(_cursor_shape_new [=[
+    const bool cursor_shape_changed = cursor_.shape != rendered_cursor_shape_;
+    if (cursor_.shape == Cursor::Hidden) {
+      if (cursor_shape_changed || hide_cursor_for_frame) {
+        set_cursor_position += "\033[?25l";
+      }
+    } else if (cursor_shape_changed || hide_cursor_for_frame) {
+      set_cursor_position += "\033[?25h";
+      set_cursor_position +=
+          "\033[" + std::to_string(int(cursor_.shape)) + " q";
+    }
+    rendered_cursor_shape_ = cursor_.shape;
+    cursor_initialized_ = true;
+]=])
+  string(REPLACE "${_cursor_shape_old}" "${_cursor_shape_new}" _screen_impl_src "${_screen_impl_src}")
+
   set(_cursor_safe_write "  std::cout << ToString() << set_cursor_position;")
   set(_cursor_bad_write "  std::cout << \"${_backslash}${_backslash}x1B[?25l\" << ToString() << set_cursor_position;")
   string(REPLACE "${_cursor_bad_write}" "${_cursor_safe_write}" _screen_impl_src "${_screen_impl_src}")
   string(REPLACE "  std::cout << \"${_backslash}033[?25l\" << ToString() << set_cursor_position;" "${_cursor_safe_write}" _screen_impl_src "${_screen_impl_src}")
   unset(_backslash)
-  unset(_cursor_hide)
-  unset(_cursor_hide_before_reset)
+  unset(_cursor_hide_block)
+  unset(_cursor_old_before_reset)
+  unset(_cursor_new_before_reset)
   unset(_cursor_hide_pos)
+  unset(_cursor_shape_old)
+  unset(_cursor_shape_new)
   unset(_cursor_bad_write)
   unset(_cursor_safe_write)
   file(WRITE "${_ftxui_screen_impl}" "${_screen_impl_src}")
