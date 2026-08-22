@@ -86,8 +86,8 @@ private:
     std::vector<DisplayMessage> messages_;
     std::string model_;
     mutable std::mutex mutex_;
-    float scroll_position_{1.0f};
-    float scroll_target_{1.0f};
+    float scroll_position_{0.0f};
+    float scroll_target_{0.0f};
     int focused_tool_index_{-1};
     bool tool_view_mode_{false};
     std::function<void()> on_scroll_to_bottom_;

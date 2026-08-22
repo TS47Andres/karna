@@ -1,6 +1,25 @@
 #include "tui/chat_view.h"
 #include <algorithm>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <memory>
+#include <optional>
 #include <sstream>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <gdiplus.h>
+#ifdef DrawText
+#undef DrawText
+#endif
+#ifdef RGB
+#undef RGB
+#endif
+#endif
 
 using namespace ftxui;
 
@@ -31,6 +50,167 @@ Color tool_color(const std::string& tool_name)
     return Color::GrayLight;
 }
 
+// Load the bundled welcome artwork from the current working directory or source tree.
+std::vector<std::string> load_welcome_art()
+{
+    const std::vector<std::filesystem::path> candidates = {
+        std::filesystem::path("assets") / "Karna.txt",
+        std::filesystem::path("Karna.txt"),
+#ifdef KARNA_SOURCE_DIR
+        std::filesystem::path(KARNA_SOURCE_DIR) / "assets" / "Karna.txt",
+#endif
+    };
+
+    for (const auto& path : candidates) {
+        std::ifstream file(path);
+        if (!file) {
+            continue;
+        }
+
+        std::vector<std::string> lines;
+        std::string line;
+        while (std::getline(file, line)) {
+            lines.push_back(std::move(line));
+        }
+        return lines;
+    }
+
+    return {};
+}
+
+// Convert the artwork file into an FTXUI element without wrapping its lines.
+Element render_welcome_art()
+{
+    static const std::vector<std::string> lines = load_welcome_art();
+    if (lines.empty()) {
+        return emptyElement();
+    }
+
+    Elements art_lines;
+    art_lines.reserve(lines.size());
+    for (const auto& line : lines) {
+        art_lines.push_back(text(line));
+    }
+
+    return vbox(std::move(art_lines)) |
+        color(Color::White) |
+        hcenter;
+}
+
+struct WelcomeImage {
+    int width;
+    int height;
+    std::vector<std::uint8_t> luminance;
+};
+
+// Decode the monochrome JPG through the native Windows image decoder.
+std::shared_ptr<const WelcomeImage> load_welcome_image()
+{
+#ifdef _WIN32
+    const std::vector<std::filesystem::path> candidates = {
+        std::filesystem::path("assets") / "Karna.jpg",
+        std::filesystem::path("Karna.jpg"),
+#ifdef KARNA_SOURCE_DIR
+        std::filesystem::path(KARNA_SOURCE_DIR) / "assets" / "Karna.jpg",
+#endif
+    };
+
+    std::filesystem::path image_path;
+    for (const auto& path : candidates) {
+        if (std::filesystem::exists(path)) {
+            image_path = path;
+            break;
+        }
+    }
+    if (image_path.empty()) {
+        return {};
+    }
+
+    Gdiplus::GdiplusStartupInput startup_input;
+    ULONG_PTR startup_token = 0;
+    if (Gdiplus::GdiplusStartup(&startup_token, &startup_input, nullptr) != Gdiplus::Ok) {
+        return {};
+    }
+
+    const std::wstring image_path_string = image_path.wstring();
+    auto bitmap = std::make_unique<Gdiplus::Bitmap>(image_path_string.c_str());
+    if (bitmap->GetLastStatus() != Gdiplus::Ok || bitmap->GetWidth() == 0 || bitmap->GetHeight() == 0) {
+        bitmap.reset();
+        Gdiplus::GdiplusShutdown(startup_token);
+        return {};
+    }
+
+    const int width = static_cast<int>(bitmap->GetWidth());
+    const int height = static_cast<int>(bitmap->GetHeight());
+    Gdiplus::Rect rect(0, 0, width, height);
+    Gdiplus::BitmapData bitmap_data{};
+    if (bitmap->LockBits(&rect, Gdiplus::ImageLockModeRead,
+                         PixelFormat32bppARGB, &bitmap_data) != Gdiplus::Ok) {
+        bitmap.reset();
+        Gdiplus::GdiplusShutdown(startup_token);
+        return {};
+    }
+
+    auto image = std::make_shared<WelcomeImage>();
+    image->width = width;
+    image->height = height;
+    image->luminance.resize(static_cast<size_t>(width) * static_cast<size_t>(height));
+
+    const int stride = std::abs(bitmap_data.Stride);
+    const auto* pixels = static_cast<const std::uint8_t*>(bitmap_data.Scan0);
+    for (int y = 0; y < height; ++y) {
+        const int source_row = bitmap_data.Stride >= 0 ? y : height - 1 - y;
+        const auto* row = pixels + static_cast<size_t>(source_row) * static_cast<size_t>(stride);
+        for (int x = 0; x < width; ++x) {
+            const auto* pixel = row + static_cast<size_t>(x) * 4;
+            const int luminance =
+                (299 * static_cast<int>(pixel[2]) +
+                 587 * static_cast<int>(pixel[1]) +
+                 114 * static_cast<int>(pixel[0])) / 1000;
+            image->luminance[static_cast<size_t>(y) * static_cast<size_t>(width) +
+                             static_cast<size_t>(x)] = static_cast<std::uint8_t>(luminance);
+        }
+    }
+
+    bitmap->UnlockBits(&bitmap_data);
+    bitmap.reset();
+    Gdiplus::GdiplusShutdown(startup_token);
+    return image;
+#else
+    return {};
+#endif
+}
+
+// Render the JPG as a compact 32x16 terminal-cell Braille image.
+Element render_welcome_visual()
+{
+    static const auto image = load_welcome_image();
+    if (!image) {
+        return render_welcome_art();
+    }
+
+    constexpr int kImageCellsWide = 32;
+    constexpr int kImageCellsHigh = 16;
+    constexpr int kCanvasWidth = kImageCellsWide * 2;
+    constexpr int kCanvasHeight = kImageCellsHigh * 4;
+    constexpr int kLuminanceThreshold = 96;
+
+    return canvas(kCanvasWidth, kCanvasHeight, [](Canvas& target) {
+        for (int y = 0; y < kCanvasHeight; ++y) {
+            const int source_y = y * image->height / kCanvasHeight;
+            for (int x = 0; x < kCanvasWidth; ++x) {
+                const int source_x = x * image->width / kCanvasWidth;
+                const auto value = image->luminance[
+                    static_cast<size_t>(source_y) * static_cast<size_t>(image->width) +
+                    static_cast<size_t>(source_x)];
+                if (value >= kLuminanceThreshold) {
+                    target.DrawPoint(x, y, true, Color::White);
+                }
+            }
+        }
+    }) | hcenter;
+}
+
 } // namespace
 
 ChatView::ChatView()
@@ -54,12 +234,16 @@ void ChatView::focus()
 void ChatView::add_message(const Message& msg)
 {
     std::lock_guard<std::mutex> lock(mutex_);
+    const bool was_empty = messages_.empty();
     std::string content = msg.content;
     for (const auto& tc : msg.tool_calls) {
         content += "\n[Tool call: " + tc.function_name + "]";
     }
     std::string name = msg.name ? *msg.name : "";
     messages_.push_back({msg.role, content, name});
+    if (was_empty) {
+        scroll_position_ = scroll_target_ = 1.0f;
+    }
 }
 
 void ChatView::append_to_last(const std::string& content)
@@ -376,6 +560,7 @@ void ChatView::clear()
 {
     std::lock_guard<std::mutex> lock(mutex_);
     messages_.clear();
+    scroll_position_ = scroll_target_ = 0.0f;
     focused_tool_index_ = -1;
     tool_view_mode_ = false;
 }
@@ -726,6 +911,8 @@ Element render_welcome_screen(const std::string& model)
     }) | size(WIDTH, LESS_THAN, 72);
 
     return vbox({
+        render_welcome_visual(),
+        text(""),
         text("TERMINAL AGENT  /  READY") | bold | color(accent) | hcenter,
         text(""),
         hbox({

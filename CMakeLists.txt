@@ -196,6 +196,9 @@ set(LIB_SOURCES
 add_library(karna_lib STATIC ${LIB_SOURCES})
 target_include_directories(karna_lib PUBLIC src)
 target_include_directories(karna_lib PRIVATE ${md4c_SOURCE_DIR}/src)
+target_compile_definitions(karna_lib PRIVATE
+  KARNA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+)
 
 target_link_libraries(karna_lib PUBLIC
   ftxui::screen
@@ -210,7 +213,7 @@ target_link_libraries(karna_lib PUBLIC
 )
 
 if(WIN32)
-  target_link_libraries(karna_lib PUBLIC ws2_32 crypt32 bcrypt)
+  target_link_libraries(karna_lib PUBLIC ws2_32 crypt32 bcrypt gdiplus)
 endif()
 
 add_executable(karna src/main.cpp)
@@ -220,6 +223,14 @@ add_custom_command(TARGET karna POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_SOURCE_DIR}/resources/cacert.pem"
     "$<TARGET_FILE_DIR:karna>/cacert.pem"
+  COMMAND ${CMAKE_COMMAND} -E make_directory
+    "$<TARGET_FILE_DIR:karna>/assets"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_SOURCE_DIR}/assets/Karna.txt"
+    "$<TARGET_FILE_DIR:karna>/assets/Karna.txt"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_SOURCE_DIR}/assets/Karna.jpg"
+    "$<TARGET_FILE_DIR:karna>/assets/Karna.jpg"
 )
 
 option(KARNA_BUILD_TESTS "Build tests" OFF)
