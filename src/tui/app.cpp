@@ -110,28 +110,36 @@ void TuiApp::run()
         }
         if (event.is_mouse()) {
             if (event.mouse().button == Mouse::WheelUp) {
-                chat_view_.scroll_by(-0.08f);
+                chat_view_.scroll_by(-8);
                 return true;
             }
             if (event.mouse().button == Mouse::WheelDown) {
-                chat_view_.scroll_by(0.08f);
+                chat_view_.scroll_by(8);
                 return true;
             }
         }
         if (event == Event::ArrowUp && input_bar_.get_text().empty()) {
-            chat_view_.scroll_by(-0.08f);
+            chat_view_.scroll_by(-3);
             return true;
         }
         if (event == Event::ArrowDown && input_bar_.get_text().empty()) {
-            chat_view_.scroll_by(0.08f);
+            chat_view_.scroll_by(3);
             return true;
         }
-        if (event == Event::PageUp || event == Event::Home) {
-            chat_view_.scroll_by(event == Event::Home ? -1.0f : -0.25f);
+        if (event == Event::Home) {
+            chat_view_.scroll_to_start();
             return true;
         }
-        if (event == Event::PageDown || event == Event::End) {
-            chat_view_.scroll_by(event == Event::End ? 1.0f : 0.25f);
+        if (event == Event::End) {
+            chat_view_.scroll_to_end();
+            return true;
+        }
+        if (event == Event::PageUp) {
+            chat_view_.scroll_by(-24);
+            return true;
+        }
+        if (event == Event::PageDown) {
+            chat_view_.scroll_by(24);
             return true;
         }
         if (event == Event::Custom) {

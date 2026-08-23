@@ -43,7 +43,9 @@ public:
     void clear();
     void set_on_scroll_to_bottom(std::function<void()> cb);
     void set_scroll_to_bottom(bool scroll);
-    void scroll_by(float amount);
+    void scroll_by(int lines);
+    void scroll_to_start();
+    void scroll_to_end();
     bool advance_scroll_animation();
     void focus();
 
@@ -89,6 +91,8 @@ private:
     mutable std::mutex mutex_;
     float scroll_position_{0.0f};
     float scroll_target_{0.0f};
+    int max_scroll_line_{0};
+    bool scroll_to_end_requested_{false};
     int focused_tool_index_{-1};
     bool tool_view_mode_{false};
     std::function<void()> on_scroll_to_bottom_;

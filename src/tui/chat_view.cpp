@@ -1,5 +1,6 @@
 #include "tui/chat_view.h"
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -242,7 +243,7 @@ void ChatView::add_message(const Message& msg)
     std::string name = msg.name ? *msg.name : "";
     messages_.push_back({msg.role, content, name});
     if (was_empty) {
-        scroll_position_ = scroll_target_ = 1.0f;
+        scroll_to_end_requested_ = true;
     }
 }
 
@@ -562,6 +563,8 @@ void ChatView::clear()
     std::lock_guard<std::mutex> lock(mutex_);
     messages_.clear();
     scroll_position_ = scroll_target_ = 0.0f;
+    max_scroll_line_ = 0;
+    scroll_to_end_requested_ = false;
     focused_tool_index_ = -1;
     tool_view_mode_ = false;
 }
@@ -1025,35 +1028,67 @@ Element ChatView::render()
         children.push_back(card_content);
     }
 
-    return vbox(std::move(children)) |
-        focusPositionRelative(0.0f, scroll_position_) |
+    auto content = vbox(std::move(children));
+    content->ComputeRequirement();
+    max_scroll_line_ = std::max(0, content->requirement().min_y - 1);
+    if (scroll_to_end_requested_) {
+        scroll_target_ = static_cast<float>(max_scroll_line_);
+        scroll_to_end_requested_ = false;
+    }
+    scroll_target_ = std::clamp(
+        scroll_target_, 0.0f, static_cast<float>(max_scroll_line_));
+    scroll_position_ = std::clamp(
+        scroll_position_, 0.0f, static_cast<float>(max_scroll_line_));
+
+    return std::move(content) |
+        focusPosition(0, static_cast<int>(std::lround(scroll_position_))) |
         vscroll_indicator | yframe;
 }
 
 void ChatView::set_scroll_to_bottom(bool scroll)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    scroll_position_ = scroll_target_ = scroll ? 1.0f : 0.0f;
+    if (scroll) {
+        scroll_to_end_requested_ = true;
+    } else {
+        scroll_to_end_requested_ = false;
+        scroll_position_ = scroll_target_ = 0.0f;
+    }
 }
 
-void ChatView::scroll_by(float amount)
+void ChatView::scroll_by(int lines)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    scroll_target_ = std::clamp(scroll_target_ + amount, 0.0f, 1.0f);
+    scroll_to_end_requested_ = false;
+    scroll_target_ = std::clamp(
+        scroll_target_ + static_cast<float>(lines),
+        0.0f,
+        static_cast<float>(max_scroll_line_));
+}
+
+void ChatView::scroll_to_start()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    scroll_to_end_requested_ = false;
+    scroll_target_ = 0.0f;
+}
+
+void ChatView::scroll_to_end()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    scroll_to_end_requested_ = true;
 }
 
 bool ChatView::advance_scroll_animation()
 {
     std::lock_guard<std::mutex> lock(mutex_);
     const float distance = scroll_target_ - scroll_position_;
-    if (std::abs(distance) < 0.001f) {
+    if (std::abs(distance) < 0.01f) {
         scroll_position_ = scroll_target_;
         return false;
     }
 
-    // Exponential easing keeps wheel and keyboard scrolling responsive while
-    // avoiding the large jumps caused by changing focusPositionRelative()
-    // directly on every input event.
-    scroll_position_ += distance * 0.28f;
+    const float step = std::clamp(distance * 0.28f, -1.0f, 1.0f);
+    scroll_position_ += step;
     return true;
 }
