@@ -73,6 +73,13 @@ cmake --build build-msys --config Release</code></pre>
 
 Running the executable without a subcommand also starts chat mode.
 
+## Download
+
+The first public Windows x64 build is available from the [Karna v0.1.0 release](https://github.com/TS47Andres/karna/releases/tag/v0.1.0).
+
+- [Download karna-v0.1.0-windows-x64.exe](https://github.com/TS47Andres/karna/releases/download/v0.1.0/karna-v0.1.0-windows-x64.exe)
+- [Download the SHA-256 checksum](https://github.com/TS47Andres/karna/releases/download/v0.1.0/karna-v0.1.0-windows-x64.sha256)
+
 ## Configure providers
 
 Configure keys inside the chat interface:
