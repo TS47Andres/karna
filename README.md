@@ -7,8 +7,8 @@
 <p align="center">A focused AI coding assistant for the terminal.</p>
 
 <p align="center">
-  <a href="https://github.com/TS47Andres/karna"><img src="https://img.shields.io/github/stars/TS47Andres/karna?style=flat-square&color=111111" alt="GitHub stars"></a>
-  <a href="https://github.com/TS47Andres/karna/commits/master"><img src="https://img.shields.io/github/last-commit/TS47Andres/karna?style=flat-square&color=111111" alt="Last commit"></a>
+  <a href="https://github.com/TS47Andres/karna"><img src="https://img.shields.io/badge/GitHub-View%20repository-111111?style=flat-square" alt="View the GitHub repository"></a>
+  <img src="https://img.shields.io/badge/branch-master-111111?style=flat-square" alt="Master branch">
   <img src="https://img.shields.io/badge/C%2B%2B-20-111111?style=flat-square" alt="C++20">
   <img src="https://img.shields.io/badge/CMake-3.22%2B-111111?style=flat-square" alt="CMake 3.22 or newer">
   <img src="https://img.shields.io/badge/UI-FTXUI-111111?style=flat-square" alt="FTXUI">
@@ -31,6 +31,19 @@ Karna is an interactive terminal coding assistant built with C++20 and FTXUI. It
 - OpenRouter model support with configurable model selection.
 - Exa-powered web search.
 - Smooth scrolling, tool focus, expandable output, and direct navigation to the latest chat content.
+
+## Interface previews
+
+<table>
+  <tr>
+    <td><img src="assets/karna-new-chat.png" alt="Karna new chat screen"></td>
+    <td><img src="assets/karna-sample-chat-1.png" alt="Karna sample chat with tools"></td>
+  </tr>
+  <tr>
+    <td><img src="assets/karna-sample-chat-2.png" alt="Karna sample chat with tool output"></td>
+    <td><img src="assets/karna-sample-chat-3.png" alt="Karna sample chat showing project analysis"></td>
+  </tr>
+</table>
 
 ## Quick start
 
