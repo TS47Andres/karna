@@ -910,7 +910,7 @@ Element render_welcome_screen(const std::string& model)
     auto shortcuts = vbox({
         text("QUICK START") | bold | color(Color::GrayLight),
         command_row("/model", "switch the active model"),
-        command_row("/setup", "save your API key"),
+        command_row("/connect", "save your API key"),
         command_row("/connect-exa", "save your Exa API key"),
         command_row("/help", "see all commands"),
     }) | size(WIDTH, LESS_THAN, 72);
@@ -1043,6 +1043,15 @@ Element ChatView::render()
     return std::move(content) |
         focusPosition(0, static_cast<int>(std::lround(scroll_position_))) |
         vscroll_indicator | yframe;
+}
+
+void ChatView::load_history(const std::vector<Message>& messages)
+{
+    clear();
+    for (const auto& message : messages) {
+        add_message(message);
+    }
+    scroll_to_end();
 }
 
 void ChatView::set_scroll_to_bottom(bool scroll)

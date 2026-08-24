@@ -1,21 +1,61 @@
 #include "core/session.h"
 #include <algorithm>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
 
-Session::Session(const Config& config)
+namespace {
+std::string title_from_first_message(const std::string& content)
+{
+    std::string title;
+    title.reserve(20);
+    for (const char c : content) {
+        if (title.size() >= 20) break;
+        title += (c == '\r' || c == '\n') ? ' ' : c;
+    }
+    return title.empty() ? "New session" : title;
+}
+
+std::string now_string()
+{
+    const auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    std::tm tm{};
+#ifdef _WIN32
+    gmtime_s(&tm, &now);
+#else
+    gmtime_r(&now, &tm);
+#endif
+    std::ostringstream out;
+    out << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
+    return out.str();
+}
+}
+
+Session::Session(const Config& config, std::string id, std::string title)
     : model_(config.openrouter.default_model)
     , max_history_tokens_(config.max_history_age)
+    , id_(std::move(id))
+    , title_(std::move(title))
+    , created_at_(now_string())
+    , updated_at_(created_at_)
 {
 }
 
 void Session::add_message(const Message& msg)
 {
+    if (msg.role == MessageRole::User && title_ == "New session") {
+        title_ = title_from_first_message(msg.content);
+    }
     history_.push_back(msg);
+    updated_at_ = now_string();
 }
 
 void Session::clear()
 {
     history_.clear();
     context_usage_ = 0;
+    total_usage_ = {};
+    updated_at_ = now_string();
 }
 
 void Session::set_model(const std::string& model)
@@ -26,6 +66,7 @@ void Session::set_model(const std::string& model)
     }
     const auto last = model.find_last_not_of(" \t\r\n");
     model_ = model.substr(first, last - first + 1);
+    updated_at_ = now_string();
     if (provider_) {
         provider_->set_model(model_);
         context_usage_ = estimate_context_usage(*provider_);
@@ -64,6 +105,8 @@ void Session::add_usage(const Usage& usage)
     total_usage_.prompt_tokens += usage.prompt_tokens;
     total_usage_.completion_tokens += usage.completion_tokens;
     total_usage_.total_tokens += usage.total_tokens;
+    total_usage_.cost += usage.cost;
+    updated_at_ = now_string();
 }
 
 int Session::context_usage() const
@@ -86,4 +129,53 @@ int Session::estimate_context_usage(const Provider& provider) const
         }
     }
     return tokens;
+}
+
+const std::string& Session::id() const
+{
+    return id_;
+}
+
+const std::string& Session::title() const
+{
+    return title_;
+}
+
+const std::string& Session::updated_at() const
+{
+    return updated_at_;
+}
+
+void Session::set_title(const std::string& title)
+{
+    if (!title.empty()) {
+        title_ = title;
+        updated_at_ = now_string();
+    }
+}
+
+SessionData Session::snapshot() const
+{
+    return {
+        id_, title_, created_at_, updated_at_, model_, history_,
+        total_usage_, context_usage_
+    };
+}
+
+void Session::restore(const SessionData& data)
+{
+    if (!data.id.empty()) id_ = data.id;
+    if (!data.title.empty()) title_ = data.title;
+    if (!data.created_at.empty()) created_at_ = data.created_at;
+    if (!data.updated_at.empty()) updated_at_ = data.updated_at;
+    if (!data.model.empty()) model_ = data.model;
+    history_ = data.history;
+    total_usage_ = data.usage;
+    context_usage_ = std::max(0, data.context_usage);
+    for (const auto& message : history_) {
+        if (message.role == MessageRole::User) {
+            title_ = title_from_first_message(message.content);
+            break;
+        }
+    }
 }

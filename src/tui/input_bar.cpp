@@ -102,6 +102,20 @@ Component InputBar::build()
             update_model_suggestions(text.substr(query_start));
             return;
         }
+
+        constexpr std::string_view sessions_command = "/sessions";
+        if (text.size() >= sessions_command.size() &&
+            text.compare(0, sessions_command.size(), sessions_command) == 0 &&
+            (text.size() == sessions_command.size() ||
+             std::isspace(static_cast<unsigned char>(text[sessions_command.size()])))) {
+            size_t query_start = sessions_command.size();
+            while (query_start < text.size() &&
+                   std::isspace(static_cast<unsigned char>(text[query_start]))) {
+                ++query_start;
+            }
+            update_session_suggestions(text.substr(query_start));
+            return;
+        }
         update_suggestions(text.substr(1));
     };
 
@@ -188,7 +202,6 @@ Component InputBar::build()
             std::string text = *input_content_;
             if (!text.empty()) {
                 bool sensitive = text.rfind("/connect ", 0) == 0 ||
-                    text.rfind("/setup ", 0) == 0 ||
                     text.rfind("/connect-exa ", 0) == 0;
                 if (!sensitive) {
                     history_.push_back(text);
@@ -270,13 +283,53 @@ void InputBar::update_model_suggestions(const std::string& query)
     }
 }
 
+void InputBar::update_session_suggestions(const std::string& query)
+{
+    suggestions_.clear();
+    selected_index_ = -1;
+
+    std::string lower_query;
+    for (const auto c : query) {
+        lower_query += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+
+    for (const auto& session : sessions_) {
+        std::string searchable = session.id + " " + session.title;
+        std::string lower_searchable;
+        for (const auto c : searchable) {
+            lower_searchable += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        if (!lower_query.empty() && lower_searchable.find(lower_query) == std::string::npos) {
+            continue;
+        }
+
+        std::string description = session.title.empty() ? "Untitled session" : session.title;
+        suggestions_.push_back({
+            session.id,
+            description,
+            false,
+            true,
+            session.active,
+            session.running
+        });
+        if (static_cast<int>(suggestions_.size()) >= 5) break;
+    }
+
+    show_suggestions_ = !suggestions_.empty();
+    if (show_suggestions_) selected_index_ = 0;
+}
+
 void InputBar::apply_suggestion()
 {
     if (selected_index_ < 0 || selected_index_ >= static_cast<int>(suggestions_.size())) return;
 
-    *input_content_ = suggestions_[selected_index_].is_model
-        ? "/model " + suggestions_[selected_index_].name + " "
-        : "/" + suggestions_[selected_index_].name + " ";
+    if (suggestions_[selected_index_].is_model) {
+        *input_content_ = "/model " + suggestions_[selected_index_].name + " ";
+    } else if (suggestions_[selected_index_].is_session) {
+        *input_content_ = "/sessions " + suggestions_[selected_index_].name + " ";
+    } else {
+        *input_content_ = "/" + suggestions_[selected_index_].name + " ";
+    }
     show_suggestions_ = false;
     selected_index_ = -1;
 }
@@ -290,16 +343,44 @@ Element InputBar::render_suggestion_list()
         bool selected = (i == selected_index_);
 
         auto marker = selected ? text(" > ") : text("   ");
-        auto cmd = text("/" + suggestions_[i].name);
+        const auto& suggestion = suggestions_[i];
+        auto cmd = text(suggestion.is_session
+            ? "/sessions " + suggestion.name
+            : "/" + suggestion.name);
         auto desc = text("  " + suggestions_[i].description) | dim;
 
         Element line;
         if (selected) {
-            line = hbox({
+            Elements selected_parts = {
                 marker,
                 cmd | bold,
                 desc | flex,
-            }) | color(Color::Black) | bgcolor(Color::White);
+            };
+            if (suggestion.is_session) {
+                const std::string state = suggestion.session_active && suggestion.session_running
+                    ? "  CURRENT · RUNNING"
+                    : (suggestion.session_active
+                        ? "  CURRENT"
+                        : (suggestion.session_running ? "  RUNNING" : ""));
+                if (!state.empty()) {
+                    selected_parts.push_back(text(state) | bold);
+                }
+            }
+            line = hbox(std::move(selected_parts)) | color(Color::Black) | bgcolor(Color::White);
+        } else if (suggestion.is_session) {
+            Color state_color = suggestion.session_active
+                ? Color::Green
+                : (suggestion.session_running ? Color::Cyan : Color::GrayLight);
+            std::string state;
+            if (suggestion.session_active && suggestion.session_running) state = "  CURRENT · RUNNING";
+            else if (suggestion.session_active) state = "  CURRENT";
+            else if (suggestion.session_running) state = "  RUNNING";
+            line = hbox({
+                marker,
+                cmd | color(Color::White) | bold,
+                desc | flex,
+                text(state) | color(state_color) | bold,
+            }) | color(Color::GrayLight);
         } else {
             line = hbox({
                 marker,
@@ -358,5 +439,18 @@ void InputBar::set_models(const std::vector<ModelInfo>& models)
             ++query_start;
         }
         update_model_suggestions(input_content_->substr(query_start));
+    }
+}
+
+void InputBar::set_sessions(const std::vector<SessionChoice>& sessions)
+{
+    sessions_ = sessions;
+    if (input_content_ && input_content_->rfind("/sessions", 0) == 0) {
+        size_t query_start = 9;
+        while (query_start < input_content_->size() &&
+               std::isspace(static_cast<unsigned char>((*input_content_)[query_start]))) {
+            ++query_start;
+        }
+        update_session_suggestions(input_content_->substr(query_start));
     }
 }

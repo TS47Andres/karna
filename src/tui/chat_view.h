@@ -16,6 +16,7 @@ public:
     ftxui::Component build();
 
     void add_message(const Message& msg);
+    void load_history(const std::vector<Message>& messages);
     void append_to_last(const std::string& content);
     void add_delta(const Delta& delta);
     void append_tool_call(const std::string& text);

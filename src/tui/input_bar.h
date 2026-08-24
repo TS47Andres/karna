@@ -11,6 +11,13 @@ class CommandRegistry;
 
 class InputBar {
 public:
+    struct SessionChoice {
+        std::string id;
+        std::string title;
+        bool active{false};
+        bool running{false};
+    };
+
     InputBar();
     ftxui::Component build();
 
@@ -22,16 +29,21 @@ public:
     void add_to_history(const std::string& entry);
     void set_command_registry(CommandRegistry* registry);
     void set_models(const std::vector<ModelInfo>& models);
+    void set_sessions(const std::vector<SessionChoice>& sessions);
 
 private:
     struct Suggestion {
         std::string name;
         std::string description;
         bool is_model{false};
+        bool is_session{false};
+        bool session_active{false};
+        bool session_running{false};
     };
 
     void update_suggestions(const std::string& query);
     void update_model_suggestions(const std::string& query);
+    void update_session_suggestions(const std::string& query);
     void apply_suggestion();
     ftxui::Element render_suggestion_list();
 
@@ -47,4 +59,5 @@ private:
     bool show_suggestions_{false};
     ftxui::Component input_component_;
     std::vector<ModelInfo> models_;
+    std::vector<SessionChoice> sessions_;
 };

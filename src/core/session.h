@@ -3,14 +3,26 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <ctime>
 
 #include "core/message.h"
 #include "core/provider.h"
 #include "config/config.h"
 
+struct SessionData {
+    std::string id;
+    std::string title;
+    std::string created_at;
+    std::string updated_at;
+    std::string model;
+    std::vector<Message> history;
+    Usage usage;
+    int context_usage{0};
+};
+
 class Session {
 public:
-    explicit Session(const Config& config);
+    explicit Session(const Config& config, std::string id = "", std::string title = "");
 
     void add_message(const Message& msg);
     void clear();
@@ -26,6 +38,13 @@ public:
     void set_context_usage(int tokens);
     int estimate_context_usage(const Provider& provider) const;
 
+    const std::string& id() const;
+    const std::string& title() const;
+    const std::string& updated_at() const;
+    void set_title(const std::string& title);
+    SessionData snapshot() const;
+    void restore(const SessionData& data);
+
 private:
     std::vector<Message> history_;
     ProviderPtr provider_;
@@ -33,4 +52,8 @@ private:
     Usage total_usage_;
     int context_usage_{0};
     int max_history_tokens_;
+    std::string id_;
+    std::string title_;
+    std::string created_at_;
+    std::string updated_at_;
 };

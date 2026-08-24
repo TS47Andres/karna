@@ -8,6 +8,8 @@
 #include "commands/cost.h"
 #include "commands/export_cmd.h"
 #include "commands/session_cmd.h"
+#include "commands/sessions_cmd.h"
+#include "commands/new_cmd.h"
 #include "commands/connect.h"
 
 class CommandInitializer {

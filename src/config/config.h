@@ -29,10 +29,13 @@ struct Config {
     static Config load();
     static Config load_from_file(const std::string& path);
 
+    // All mutable Karna state is scoped to the directory where the app runs.
+    static std::string storage_dir();
+    static std::string config_path();
+    static std::string mcp_config_path();
+
     void save(const std::string& path = "");
 
 private:
     static Config default_config();
-    static std::string config_path();
-    static std::string state_path();
 };

@@ -1,5 +1,6 @@
 set(TEST_SOURCES
   test_config.cpp
+  test_session_store.cpp
   test_tools.cpp
   test_file_ops.cpp
   test_process.cpp

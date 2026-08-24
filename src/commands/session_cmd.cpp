@@ -2,6 +2,7 @@
 #include "core/command.h"
 #include "core/session.h"
 #include "tui/chat_view.h"
+#include <iomanip>
 #include <sstream>
 
 std::string SessionCommand::name() const { return "session"; }
@@ -20,6 +21,8 @@ void SessionCommand::execute(const std::string& /*args*/, CommandContext& ctx)
     info << "  Tokens: " << ctx.session.total_usage().total_tokens
          << " (P:" << ctx.session.total_usage().prompt_tokens
          << " C:" << ctx.session.total_usage().completion_tokens << ")\n";
+    info << "  Cost: " << std::fixed << std::setprecision(6)
+         << ctx.session.total_usage().cost << " credits\n";
     ctx.chat_view.show_system_message(info.str());
     ctx.request_rerender();
 }

@@ -5,6 +5,7 @@
 #include "project/context.h"
 
 #include <curl/curl.h>
+#include <algorithm>
 #include <thread>
 #include <sstream>
 #include <iostream>
@@ -129,11 +130,13 @@ private:
 
 struct OpenRouterProvider::WriteCtx {
     std::string buffer;
+    std::string response_preview;
     std::atomic<bool>* abort_flag;
     std::function<void(Delta)> const* on_delta;
     std::function<void(std::string)> const* on_error;
     Usage final_usage;
     std::map<int, ToolCall> accumulated_calls;
+    bool response_error{false};
 };
 
 OpenRouterProvider::OpenRouterProvider(const ProviderConfig& config)
@@ -333,6 +336,11 @@ size_t OpenRouterProvider::write_callback(char* data, size_t size, size_t nmemb,
             return 0;
         }
 
+        if (ctx->response_preview.size() < 8192) {
+            const size_t remaining = 8192 - ctx->response_preview.size();
+            ctx->response_preview.append(data, std::min(total, remaining));
+        }
+
         ctx->buffer.append(data, total);
 
         size_t pos = 0;
@@ -360,6 +368,7 @@ size_t OpenRouterProvider::write_callback(char* data, size_t size, size_t nmemb,
                 try {
                     auto j = json::parse(payload);
                     if (j.contains("error")) {
+                        ctx->response_error = true;
                         std::string err = j["error"].value("message", "unknown error");
                         if (ctx->on_error) {
                             notify_error(*ctx->on_error, "", err.c_str());
@@ -371,9 +380,13 @@ size_t OpenRouterProvider::write_callback(char* data, size_t size, size_t nmemb,
                     bool has_content = false;
 
                     if (j.contains("usage") && !j["usage"].is_null()) {
-                        ctx->final_usage.prompt_tokens = j["usage"].value("prompt_tokens", 0);
-                        ctx->final_usage.completion_tokens = j["usage"].value("completion_tokens", 0);
-                        ctx->final_usage.total_tokens = j["usage"].value("total_tokens", 0);
+                        const auto& usage = j["usage"];
+                        ctx->final_usage.prompt_tokens = usage.value("prompt_tokens", 0);
+                        ctx->final_usage.completion_tokens = usage.value("completion_tokens", 0);
+                        ctx->final_usage.total_tokens = usage.value("total_tokens", 0);
+                        if (usage.contains("cost") && usage["cost"].is_number()) {
+                            ctx->final_usage.cost = usage["cost"].get<double>();
+                        }
                     }
 
                     if (j.contains("choices") && !j["choices"].empty()) {
@@ -470,6 +483,10 @@ void OpenRouterProvider::send(
     ErrorCallback start_error;
     try {
         start_error = on_error;
+        if (config_.api_key.find_first_not_of(" \t\r\n") == std::string::npos) {
+            notify_error(on_error, "OpenRouter API key is not configured. Use /connect <key>." );
+            return;
+        }
         abort_.store(false);
 
         std::lock_guard<std::mutex> lock(worker_mutex_);
@@ -524,12 +541,31 @@ void OpenRouterProvider::send(
                 curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, "karna/0.1.0");
 
                 const CURLcode result = curl_easy_perform(curl.get());
+                long http_status = 0;
+                curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &http_status);
+
                 if (result != CURLE_OK || abort_.load()) {
                     if (abort_.load()) {
                         notify_error(on_error, "Request aborted");
                     } else {
                         notify_error(on_error, "Request failed: ", curl_easy_strerror(result));
                     }
+                } else if (ctx.response_error) {
+                    // The SSE parser already delivered the API error.
+                    return;
+                } else if (http_status < 200 || http_status >= 300) {
+                    std::string message = "OpenRouter request failed (HTTP " +
+                        std::to_string(http_status) + ")";
+                    try {
+                        const auto error_payload = json::parse(ctx.response_preview);
+                        if (error_payload.contains("error") && error_payload["error"].is_object()) {
+                            const std::string detail = error_payload["error"].value("message", "");
+                            if (!detail.empty()) message += ": " + detail;
+                        }
+                    } catch (...) {
+                        // Keep the HTTP status when the server did not return JSON.
+                    }
+                    notify_error(on_error, message.c_str());
                 } else {
                     notify_done(on_done, ctx.final_usage);
                 }

@@ -171,6 +171,9 @@ set(LIB_SOURCES
   src/commands/cost.cpp
   src/commands/export_cmd.cpp
   src/commands/session_cmd.cpp
+  src/commands/sessions_cmd.cpp
+  src/commands/new_cmd.cpp
+  src/core/session_store.cpp
   src/mcp/client.cpp
   src/mcp/server.cpp
   src/mcp/transport.cpp

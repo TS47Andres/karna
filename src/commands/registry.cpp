@@ -9,7 +9,8 @@ void CommandInitializer::register_all(CommandRegistry& registry)
     registry.register_command(std::make_unique<CostCommand>());
     registry.register_command(std::make_unique<ExportCommand>());
     registry.register_command(std::make_unique<SessionCommand>());
+    registry.register_command(std::make_unique<SessionsCommand>());
+    registry.register_command(std::make_unique<NewCommand>());
     registry.register_command(std::make_unique<ConnectCommand>("connect"));
-    registry.register_command(std::make_unique<ConnectCommand>("setup"));
     registry.register_command(std::make_unique<ConnectCommand>("connect-exa", true));
 }

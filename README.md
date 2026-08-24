@@ -6,6 +6,9 @@ Karna is an AI coding harness for the terminal. It provides an interactive FTXUI
 
 - Interactive terminal chat with streaming responses.
 - Markdown rendering, conversation history, token usage, and model information.
+- Persistent multi-session chat with live switching between historical and running sessions.
+- Interactive `/sessions` picker with automatic updates; `CURRENT` is green and background `RUNNING` sessions are cyan.
+- Session names use the first 20 characters of the first user message.
 - Built-in coding tools: `read`, `write`, `edit`, `bash`, `glob`, `grep`, and `search`.
 - `sub_agent` support for read-only investigation or delegated read/write work.
 - Exa-powered web search.
@@ -56,7 +59,7 @@ The recommended method is directly inside the chat UI:
 /connect-exa <exa-api-key>
 ```
 
-`/setup <openrouter-api-key>` is retained as an alias for `/connect`. API-key commands are treated as sensitive input and are not added to command history.
+API-key commands are treated as sensitive input and are not added to command history.
 
 Keys can also be initialized from environment variables:
 
@@ -66,7 +69,17 @@ $env:EXA_API_KEY = "your-exa-key"
 .\build-msys\karna.exe init
 ```
 
-On Windows, configuration is stored at `%APPDATA%\karna\config.toml`. On Unix-like systems, it is stored at `~/.config/karna/config.toml`.
+Karna stores project-local state in a hidden `.karna` directory wherever it is launched:
+
+```text
+.karna/
+├── config.toml       API keys, default model, and UI settings
+├── mcp.toml          reserved for MCP configuration
+├── active-session    the last selected session
+└── sessions/         one durable JSON file per chat session
+```
+
+This keeps keys, model choices, MCP-related configuration, and conversations together for the current project. Add `.karna/` to your VCS ignore rules if it should remain local.
 
 Check the saved configuration with:
 
@@ -89,8 +102,12 @@ Slash commands are entered in the chat input bar.
 | `/cost` | Show estimated session cost |
 | `/export [path]` | Export the conversation to Markdown |
 | `/session` | Show model, message, and token information |
+| `/sessions` | List historical and currently running sessions |
+| `/sessions <id>` | Switch to a session without stopping its work |
+| `/sessions next` / `/sessions prev` | Cycle through saved sessions |
+| `/sessions <number>` | Switch using the number shown by the session list |
+| `/new` | Create and switch to a new session |
 | `/connect <key>` | Save the OpenRouter API key |
-| `/setup <key>` | Alias for `/connect` |
 | `/connect-exa <key>` | Save the Exa AI API key |
 
 ## Agent Tools
