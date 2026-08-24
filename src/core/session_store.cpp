@@ -158,15 +158,25 @@ Message message_from_json(const json& value)
 bool replace_file(const fs::path& temporary, const fs::path& destination)
 {
 #ifdef _WIN32
-    return MoveFileExW(
-        temporary.c_str(),
-        destination.c_str(),
-        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
-#else
+    if (MoveFileExW(
+            temporary.wstring().c_str(),
+            destination.wstring().c_str(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0) {
+        return true;
+    }
+#endif
     std::error_code error;
     fs::rename(temporary, destination, error);
+    if (!error) return true;
+
+    if (error == std::errc::file_exists) {
+        error.clear();
+        fs::remove(destination, error);
+        if (!error) {
+            fs::rename(temporary, destination, error);
+        }
+    }
     return !error;
-#endif
 }
 }
 
