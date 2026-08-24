@@ -1,147 +1,209 @@
-# Karna
+<p align="center">
+  <img src="assets/Karna.jpg" alt="Karna archer illustration" width="520">
+</p>
 
-Karna is an AI coding harness for the terminal. It provides an interactive FTXUI chat interface, streaming model responses, filesystem tools, shell execution, and web search.
+<h1 align="center">Karna</h1>
 
-## Features
+<p align="center">A focused AI coding assistant for the terminal.</p>
 
-- Interactive terminal chat with streaming responses.
-- Markdown rendering, conversation history, token usage, and model information.
-- Persistent multi-session chat with live switching between historical and running sessions.
-- Interactive `/sessions` picker with automatic updates; `CURRENT` is green and background `RUNNING` sessions are cyan.
-- Session names use the first 20 characters of the first user message.
-- Built-in coding tools: `read`, `write`, `edit`, `bash`, `glob`, `grep`, and `search`.
-- `sub_agent` support for read-only investigation or delegated read/write work.
+<p align="center">
+  <a href="https://github.com/TS47Andres/karna"><img src="https://img.shields.io/github/stars/TS47Andres/karna?style=flat-square&color=111111" alt="GitHub stars"></a>
+  <a href="https://github.com/TS47Andres/karna/commits/master"><img src="https://img.shields.io/github/last-commit/TS47Andres/karna?style=flat-square&color=111111" alt="Last commit"></a>
+  <img src="https://img.shields.io/badge/C%2B%2B-20-111111?style=flat-square" alt="C++20">
+  <img src="https://img.shields.io/badge/CMake-3.22%2B-111111?style=flat-square" alt="CMake 3.22 or newer">
+  <img src="https://img.shields.io/badge/UI-FTXUI-111111?style=flat-square" alt="FTXUI">
+</p>
+
+<p align="center">
+  <code>c++</code> <code>cmake</code> <code>terminal-ui</code>
+  <code>coding-agent</code> <code>openrouter</code> <code>exa</code>
+</p>
+
+Karna is an interactive terminal coding assistant built with C++20 and FTXUI. It streams model responses, works with project files and shell commands, keeps durable conversation sessions, and provides a compact interface for inspecting tool activity.
+
+## Highlights
+
+- Streaming chat responses in a keyboard-first terminal interface.
+- Persistent sessions stored locally in .karna/sessions.
+- Session switching, creation, deletion, and automatic titles.
+- History restoration that preserves tool cards, diffs, Bash/search panels, and sub-agent transcripts.
+- Built-in tools for reading, writing, editing, searching, and inspecting a project.
+- OpenRouter model support with configurable model selection.
 - Exa-powered web search.
-- Compact Bash and search result panels. Five lines are shown by default; press `Ctrl+T` to expand the selected tool result.
-- Line-based chat scrolling with smooth animation.
+- Smooth scrolling, tool focus, expandable output, and direct navigation to the latest chat content.
 
-## Requirements
+## Quick start
+
+### Requirements
 
 - CMake 3.22 or newer.
-- A C++20 compiler.
+- A C++20-compatible compiler.
 - libcurl and its development files.
-- Internet access during the first configure, because dependencies are fetched with CMake `FetchContent`.
+- Internet access during the first configure because dependencies are fetched with CMake FetchContent.
 
-## Build
+### Build
 
-```powershell
+<pre><code>git clone https://github.com/TS47Andres/karna.git
+Set-Location karna
+
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
-```
+cmake --build build --config Release</code></pre>
 
-The executable is written to `build/karna` or `build/Release/karna.exe`, depending on the generator. For the existing MinGW/Ninja setup, the executable is `build-msys/karna.exe`.
+For the existing MinGW/Ninja setup:
 
-## Run
+<pre><code>cmake -S . -B build-msys -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build-msys --config Release</code></pre>
 
-```powershell
-.\build-msys\karna.exe chat
-```
+### Run
 
-Running Karna without a subcommand also starts chat mode.
+<pre><code>.\build-msys\karna.exe chat</code></pre>
 
-Available CLI subcommands:
+Running the executable without a subcommand also starts chat mode.
 
-| Command | Description |
-|---|---|
-| `init` | Initialize configuration from environment variables |
-| `chat` | Start an interactive chat session |
-| `config` | Display current configuration and masked API keys |
+## Configure providers
 
-## Configure API Keys
+Configure keys inside the chat interface:
 
-The recommended method is directly inside the chat UI:
+<pre><code>/connect &lt;openrouter-api-key&gt;
+/connect-exa &lt;exa-api-key&gt;</code></pre>
 
-```text
-/connect <openrouter-api-key>
-/connect-exa <exa-api-key>
-```
+Or initialize them from environment variables:
 
-API-key commands are treated as sensitive input and are not added to command history.
-
-Keys can also be initialized from environment variables:
-
-```powershell
-$env:OPENROUTER_API_KEY = "your-openrouter-key"
+<pre><code>$env:OPENROUTER_API_KEY = "your-openrouter-key"
 $env:EXA_API_KEY = "your-exa-key"
-.\build-msys\karna.exe init
-```
+.\build-msys\karna.exe init</code></pre>
 
-Karna stores project-local state in a hidden `.karna` directory wherever it is launched:
+View the saved configuration:
 
-```text
-.karna/
-├── config.toml       API keys and provider settings
-├── active-session    the last selected session
-└── sessions/         one durable JSON file per chat session
-```
+<pre><code>.\build-msys\karna.exe config</code></pre>
 
-This keeps keys, model choices, and conversations together for the current project. Add `.karna/` to your VCS ignore rules if it should remain local.
+Karna stores configuration, the active session ID, and session files in a project-local .karna directory. Add it to .gitignore:
 
-Check the saved configuration with:
+<pre><code>.karna/</code></pre>
 
-```powershell
-.\build-msys\karna.exe config
-```
-
-Keys are displayed in masked form.
-
-## Slash Commands
-
-Slash commands are entered in the chat input bar.
+## CLI commands
 
 | Command | Description |
-|---|---|
-| `/help` | Show available commands and tools |
-| `/clear` | Clear the conversation history |
-| `/model <name>` | Change the active model |
-| `/cost` | Show estimated session cost |
-| `/export [path]` | Export the conversation to Markdown |
-| `/session` | Show model, message, and token information |
-| `/sessions` | List historical and currently running sessions |
-| `/sessions <id>` | Switch to a session without stopping its work |
-| `/sessions next` / `/sessions prev` | Cycle through saved sessions |
-| `/sessions <number>` | Switch using the number shown by the session list |
-| `/new` | Create and switch to a new session |
-| `/delete` | Delete the current session |
-| `/connect <key>` | Save the OpenRouter API key |
-| `/connect-exa <key>` | Save the Exa AI API key |
+| --- | --- |
+| init | Initialize configuration from environment variables |
+| chat | Start an interactive chat session |
+| config | Display configuration and masked API keys |
 
-## Agent Tools
+## Chat commands
+
+| Command | Description |
+| --- | --- |
+| /help | Show available commands and tools |
+| /clear | Clear the current conversation |
+| /model &lt;name&gt; | Change the active model |
+| /cost | Show estimated cost for the current session |
+| /export [path] | Export the conversation to Markdown |
+| /session | Show model, usage, and message information |
+| /sessions | List saved and running sessions |
+| /sessions &lt;id&gt; | Switch to a session by ID |
+| /sessions next | Switch to the next session |
+| /sessions prev | Switch to the previous session |
+| /sessions &lt;number&gt; | Switch using the session list number |
+| /new | Create and switch to a new session |
+| /delete | Stop work and delete the current session |
+| /connect &lt;key&gt; | Save the OpenRouter API key |
+| /connect-exa &lt;key&gt; | Save the Exa API key |
+
+## Built-in tools
 
 | Tool | Purpose |
-|---|---|
-| `read` | Read a file, optionally using an offset and line limit |
-| `write` | Create or overwrite a file |
-| `edit` | Apply an exact search-and-replace edit |
-| `bash` | Execute a shell command and stream its output |
-| `glob` | Find files recursively using a glob pattern |
-| `grep` | Search file contents using a regular expression |
-| `search` | Search the web using Exa AI |
-| `sub_agent` | Delegate an independent task in read-only or read/write mode |
+| --- | --- |
+| read | Read a file with optional offset and line limit |
+| write | Create or overwrite a file |
+| edit | Apply an exact search-and-replace edit |
+| bash | Execute a shell command and stream its output |
+| glob | Find files recursively using a glob pattern |
+| grep | Search file contents with a regular expression |
+| search | Search the web using Exa |
+| sub_agent | Delegate an independent read-only or read/write task |
 
-On Windows, `bash` commands use native PowerShell syntax. On Unix-like systems, they use the platform shell.
+On Windows, bash uses native PowerShell syntax. On Unix-like systems, it uses the platform shell.
 
-## Project Layout
+## Keyboard shortcuts
 
-```text
-src/
-├── cli/          CLI entry points
-├── commands/     Interactive slash commands
-├── config/       TOML configuration loading and saving
-├── core/         Sessions, messages, providers, and tool interfaces
-├── providers/    Model provider implementations
-├── tools/        Built-in agent tools
-├── tui/          FTXUI chat interface and widgets
-├── process/      Shell process execution
-└── project/      Project context and repository information
-```
+| Shortcut | Action |
+| --- | --- |
+| Enter | Send a message or open a focused tool |
+| Up / Down | Scroll the chat |
+| Ctrl+Up / Ctrl+Down | Navigate input history |
+| Ctrl+T | Focus the next tool result |
+| Esc twice | Abort the active request |
 
-The main runtime flow is:
+## Session storage
 
-```text
-CLI → Controller → Session + Provider + ToolRegistry + TUI
-                         ↓
-                    tool execution
-                         ↓
-                 streamed result to chat
-```
+Each project gets an independent .karna directory:
+
+<pre><code>.karna/
+|-- config.toml
+|-- active-session
++-- sessions/
+    +-- session-*.json</code></pre>
+
+Session files contain conversation messages, usage totals, model information, context estimates, and display metadata required to restore the same tool cards shown during a live chat. New sessions open at the bottom of the conversation. If the previous session contains history, Karna starts a fresh session on launch.
+
+## Architecture
+
+<pre><code>CLI
+ |
+ v
+Controller ---- SessionStore ---- .karna/
+ |
+ +---- Provider ---- OpenRouter
+ |
+ +---- ToolRegistry ---- read / write / edit / bash / glob / grep / search / sub_agent
+ |
+ +---- TUI ---- FTXUI chat, sidebar, input, and status bar</code></pre>
+
+## Project layout
+
+<pre><code>src/
+|-- cli/          CLI entry points
+|-- commands/     Interactive chat commands
+|-- config/       TOML configuration
+|-- core/         Sessions, messages, providers, and tool interfaces
+|-- io/           File operations
+|-- net/          Network setup
+|-- process/      Shell process execution
+|-- project/      Project and Git context
+|-- providers/    Model provider implementations
+|-- tools/        Built-in coding tools
++-- tui/          FTXUI interface and widgets</code></pre>
+
+## Security and privacy
+
+- API keys are stored in the project-local .karna/config.toml.
+- API-key commands are not added to input history.
+- Shell commands run with the permissions of the current user.
+- Review tool calls before allowing changes in sensitive repositories.
+- Never commit .karna/ or share its contents publicly.
+
+## Troubleshooting
+
+### The API key is missing
+
+Run /connect &lt;key&gt; inside chat or initialize OPENROUTER_API_KEY and EXA_API_KEY.
+
+### A session cannot be saved on Windows
+
+Close any running Karna executable before rebuilding. The executable cannot be relinked while Windows has it open. Session files are written under the current working directory's .karna/sessions directory.
+
+### The model does not respond
+
+Check the OpenRouter key, selected model, network connection, and status line. Press Esc twice to cancel a request that is taking too long.
+
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. Keep changes focused, use Conventional Commit messages, and avoid committing local .karna state.
+
+## License
+
+No license file is currently included. All rights remain with the repository author until a license is added.
+
+## Repository tags
+
+c++ | c++20 | cmake | ftxui | terminal | tui | ai-assistant | coding-agent | developer-tools | openrouter | exa | session-management
