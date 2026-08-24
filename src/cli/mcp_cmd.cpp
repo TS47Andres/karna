@@ -1,7 +1,7 @@
 #include "cli/mcp_cmd.h"
 #include "core/mcp.h"
+#include "core/tool.h"
 #include "config/config.h"
-#include "tools/registry.h"
 #include "tools/read.h"
 #include "tools/write.h"
 #include "tools/edit.h"
@@ -31,7 +31,7 @@ int cli::run_mcp(int /*argc*/, char** /*argv*/)
     tools.register_tool(std::make_unique<GlobTool>());
     tools.register_tool(std::make_unique<GrepTool>());
 
-    auto transport = std::make_unique<mcp::StdioTransport>("", std::vector<std::string>());
+    auto transport = std::make_unique<mcp::StdioTransport>();
     mcp::Server server(std::move(transport));
 
     for (const auto* t : tools.all()) {

@@ -565,6 +565,7 @@ void ChatView::clear()
     scroll_position_ = scroll_target_ = 0.0f;
     max_scroll_line_ = 0;
     scroll_to_end_requested_ = false;
+    scroll_to_end_immediately_requested_ = false;
     focused_tool_index_ = -1;
     tool_view_mode_ = false;
 }
@@ -1033,6 +1034,10 @@ Element ChatView::render()
     max_scroll_line_ = std::max(0, content->requirement().min_y - 1);
     if (scroll_to_end_requested_) {
         scroll_target_ = static_cast<float>(max_scroll_line_);
+        if (scroll_to_end_immediately_requested_) {
+            scroll_position_ = scroll_target_;
+            scroll_to_end_immediately_requested_ = false;
+        }
         scroll_to_end_requested_ = false;
     }
     scroll_target_ = std::clamp(
@@ -1050,6 +1055,10 @@ void ChatView::load_history(const std::vector<Message>& messages)
     clear();
     for (const auto& message : messages) {
         add_message(message);
+    }
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        scroll_to_end_immediately_requested_ = true;
     }
     scroll_to_end();
 }

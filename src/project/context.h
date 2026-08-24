@@ -14,5 +14,4 @@ struct ProjectContext {
     static ProjectContext discover(const std::string& start_path = ".");
     static std::optional<std::string> find_git_root(const std::string& path);
 
-    std::string summarize() const;
 };

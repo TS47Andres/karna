@@ -48,7 +48,6 @@ public:
     void register_tool(ToolPtr tool);
     Tool* find(const std::string& name) const;
     std::vector<const Tool*> all() const;
-    std::vector<std::string> all_names() const;
 
 private:
     std::vector<ToolPtr> tools_;

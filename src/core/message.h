@@ -42,17 +42,6 @@ struct Message {
     std::optional<std::string> tool_call_id;
 };
 
-struct StreamEvent {
-    enum class Type {
-        Delta,
-        Done,
-        Error
-    };
-    Type type;
-    std::optional<Delta> delta;
-    std::optional<std::string> error_message;
-};
-
 struct Usage {
     int prompt_tokens{0};
     int completion_tokens{0};

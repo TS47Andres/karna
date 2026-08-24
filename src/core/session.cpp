@@ -33,7 +33,6 @@ std::string now_string()
 
 Session::Session(const Config& config, std::string id, std::string title)
     : model_(config.openrouter.default_model)
-    , max_history_tokens_(config.max_history_age)
     , id_(std::move(id))
     , title_(std::move(title))
     , created_at_(now_string())
@@ -146,14 +145,6 @@ const std::string& Session::updated_at() const
     return updated_at_;
 }
 
-void Session::set_title(const std::string& title)
-{
-    if (!title.empty()) {
-        title_ = title;
-        updated_at_ = now_string();
-    }
-}
-
 SessionData Session::snapshot() const
 {
     return {
@@ -172,10 +163,12 @@ void Session::restore(const SessionData& data)
     history_ = data.history;
     total_usage_ = data.usage;
     context_usage_ = std::max(0, data.context_usage);
-    for (const auto& message : history_) {
-        if (message.role == MessageRole::User) {
-            title_ = title_from_first_message(message.content);
-            break;
+    if (title_.empty()) {
+        for (const auto& message : history_) {
+            if (message.role == MessageRole::User) {
+                title_ = title_from_first_message(message.content);
+                break;
+            }
         }
     }
 }

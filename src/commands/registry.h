@@ -4,12 +4,12 @@
 #include "commands/help.h"
 #include "commands/clear.h"
 #include "commands/model.h"
-#include "commands/tokens.h"
 #include "commands/cost.h"
 #include "commands/export_cmd.h"
 #include "commands/session_cmd.h"
 #include "commands/sessions_cmd.h"
 #include "commands/new_cmd.h"
+#include "commands/delete_cmd.h"
 #include "commands/connect.h"
 
 class CommandInitializer {

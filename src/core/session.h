@@ -41,7 +41,6 @@ public:
     const std::string& id() const;
     const std::string& title() const;
     const std::string& updated_at() const;
-    void set_title(const std::string& title);
     SessionData snapshot() const;
     void restore(const SessionData& data);
 
@@ -51,7 +50,6 @@ private:
     std::string model_;
     Usage total_usage_;
     int context_usage_{0};
-    int max_history_tokens_;
     std::string id_;
     std::string title_;
     std::string created_at_;

@@ -16,7 +16,7 @@ public:
     bool remove(const std::string& id) const;
 
     std::string active_id() const;
-    void set_active_id(const std::string& id) const;
+    bool set_active_id(const std::string& id) const;
 
     static std::string new_id();
 

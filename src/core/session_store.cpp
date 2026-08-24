@@ -4,6 +4,11 @@
 #include <nlohmann/json.hpp>
 #include <random>
 #include <algorithm>
+#include <chrono>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 namespace fs = std::filesystem;
 using json = nlohmann::json;
@@ -82,6 +87,20 @@ Message message_from_json(const json& value)
         }
     }
     return message;
+}
+
+bool replace_file(const fs::path& temporary, const fs::path& destination)
+{
+#ifdef _WIN32
+    return MoveFileExW(
+        temporary.c_str(),
+        destination.c_str(),
+        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+    std::error_code error;
+    fs::rename(temporary, destination, error);
+    return !error;
+#endif
 }
 }
 
@@ -171,10 +190,14 @@ std::vector<SessionData> SessionStore::load_all() const
 {
     std::vector<SessionData> sessions;
     if (!fs::exists(sessions_directory_)) return sessions;
-    for (const auto& entry : fs::directory_iterator(sessions_directory_)) {
-        if (!entry.is_regular_file() || entry.path().extension() != ".json") continue;
-        auto session = load(entry.path().stem().string());
-        if (session) sessions.push_back(std::move(*session));
+    try {
+        for (const auto& entry : fs::directory_iterator(sessions_directory_)) {
+            if (!entry.is_regular_file() || entry.path().extension() != ".json") continue;
+            auto session = load(entry.path().stem().string());
+            if (session) sessions.push_back(std::move(*session));
+        }
+    } catch (...) {
+        return {};
     }
     std::sort(sessions.begin(), sessions.end(), [](const auto& left, const auto& right) {
         return left.updated_at > right.updated_at;
@@ -188,16 +211,20 @@ bool SessionStore::save(const SessionData& data) const
     if (path.empty()) return false;
     try {
         fs::create_directories(sessions_directory_);
-        const auto temporary = path.string() + ".tmp";
+        const auto temporary = path.string() + ".tmp-" + new_id();
         {
             std::ofstream file(temporary, std::ios::trunc);
             if (!file) return false;
             file << to_json(data).dump(2) << '\n';
+            file.flush();
+            if (!file) {
+                std::error_code error;
+                fs::remove(temporary, error);
+                return false;
+            }
         }
-        std::error_code error;
-        fs::remove(path, error);
-        fs::rename(temporary, path, error);
-        if (error) {
+        if (!replace_file(temporary, path)) {
+            std::error_code error;
             fs::remove(temporary, error);
             return false;
         }
@@ -210,7 +237,10 @@ bool SessionStore::save(const SessionData& data) const
 bool SessionStore::remove(const std::string& id) const
 {
     const auto path = session_path(id);
-    return !path.empty() && fs::remove(path);
+    if (path.empty()) return false;
+    std::error_code error;
+    fs::remove(path, error);
+    return !error;
 }
 
 std::string SessionStore::active_id() const
@@ -221,11 +251,31 @@ std::string SessionStore::active_id() const
     return id;
 }
 
-void SessionStore::set_active_id(const std::string& id) const
+bool SessionStore::set_active_id(const std::string& id) const
 {
-    fs::create_directories(directory_);
-    std::ofstream file(active_path_, std::ios::trunc);
-    if (file) file << id << '\n';
+    try {
+        fs::create_directories(directory_);
+        const auto temporary = active_path_.string() + ".tmp-" + new_id();
+        {
+            std::ofstream file(temporary, std::ios::trunc);
+            if (!file) return false;
+            file << id << '\n';
+            file.flush();
+            if (!file) {
+                std::error_code error;
+                fs::remove(temporary, error);
+                return false;
+            }
+        }
+        if (!replace_file(temporary, active_path_)) {
+            std::error_code error;
+            fs::remove(temporary, error);
+            return false;
+        }
+        return true;
+    } catch (...) {
+        return false;
+    }
 }
 
 std::string SessionStore::new_id()

@@ -2,7 +2,7 @@
 
 #include "core/command.h"
 
-class SkillsListCommand : public Command {
+class DeleteCommand : public Command {
 public:
     std::string name() const override;
     std::string description() const override;

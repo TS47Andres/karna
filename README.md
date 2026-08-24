@@ -46,7 +46,6 @@ Available CLI subcommands:
 |---|---|
 | `init` | Initialize configuration from environment variables |
 | `chat` | Start an interactive chat session |
-| `run` | One-shot mode; currently not implemented |
 | `config` | Display current configuration and masked API keys |
 | `mcp` | Start the stdio MCP server |
 
@@ -73,13 +72,12 @@ Karna stores project-local state in a hidden `.karna` directory wherever it is l
 
 ```text
 .karna/
-├── config.toml       API keys, default model, and UI settings
-├── mcp.toml          reserved for MCP configuration
+├── config.toml       API keys and provider settings
 ├── active-session    the last selected session
 └── sessions/         one durable JSON file per chat session
 ```
 
-This keeps keys, model choices, MCP-related configuration, and conversations together for the current project. Add `.karna/` to your VCS ignore rules if it should remain local.
+This keeps keys, model choices, and conversations together for the current project. Add `.karna/` to your VCS ignore rules if it should remain local.
 
 Check the saved configuration with:
 
@@ -98,7 +96,6 @@ Slash commands are entered in the chat input bar.
 | `/help` | Show available commands and tools |
 | `/clear` | Clear the conversation history |
 | `/model <name>` | Change the active model |
-| `/tokens` | Show session token usage |
 | `/cost` | Show estimated session cost |
 | `/export [path]` | Export the conversation to Markdown |
 | `/session` | Show model, message, and token information |
@@ -107,6 +104,7 @@ Slash commands are entered in the chat input bar.
 | `/sessions next` / `/sessions prev` | Cycle through saved sessions |
 | `/sessions <number>` | Switch using the number shown by the session list |
 | `/new` | Create and switch to a new session |
+| `/delete` | Delete the current session |
 | `/connect <key>` | Save the OpenRouter API key |
 | `/connect-exa <key>` | Save the Exa AI API key |
 
@@ -134,16 +132,6 @@ Start Karna as an MCP stdio server with:
 ```
 
 The server exposes the built-in tools through MCP discovery and tool calls.
-
-## Tests
-
-Configure with tests enabled, build, and run CTest:
-
-```powershell
-cmake -S . -B build-tests -DKARNA_BUILD_TESTS=ON
-cmake --build build-tests --config Release
-ctest --test-dir build-tests --output-on-failure
-```
 
 ## Project Layout
 

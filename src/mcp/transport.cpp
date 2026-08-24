@@ -2,21 +2,11 @@
 
 #include <cstdio>
 #include <thread>
-#include <mutex>
-#include <condition_variable>
-#include <sstream>
-
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <unistd.h>
-#include <sys/wait.h>
-#endif
 
 namespace mcp {
 
-StdioTransport::StdioTransport(const std::string& command, const std::vector<std::string>& args)
-    : impl_(std::make_unique<Impl>(command, args))
+StdioTransport::StdioTransport()
+    : impl_(std::make_unique<Impl>())
 {}
 
 StdioTransport::~StdioTransport() = default;
@@ -25,9 +15,7 @@ void StdioTransport::send(const json& message) { impl_->send(message); }
 void StdioTransport::on_message(std::function<void(json)> callback) { impl_->on_message(std::move(callback)); }
 void StdioTransport::close() { impl_->close(); }
 
-StdioTransport::Impl::Impl(const std::string& command, const std::vector<std::string>& args)
-    : command_(command), args_(args)
-{}
+StdioTransport::Impl::Impl() = default;
 
 StdioTransport::Impl::~Impl() { close(); }
 
@@ -65,81 +53,6 @@ void StdioTransport::Impl::close()
 {
     running_ = false;
     if (reader_thread_.joinable()) reader_thread_.join();
-}
-
-
-Client::Client(std::unique_ptr<Transport> transport)
-    : impl_(std::make_unique<Impl>(std::move(transport)))
-{}
-
-Client::~Client() = default;
-
-void Client::connect() { impl_->connect(); }
-std::vector<ToolDefinition> Client::list_tools() { return impl_->list_tools(); }
-CallResult Client::call_tool(const std::string& name, const json& args) { return impl_->call_tool(name, args); }
-
-Client::Impl::Impl(std::unique_ptr<Transport> transport)
-    : transport_(std::move(transport))
-{}
-
-void Client::Impl::connect()
-{
-    transport_->on_message([this](const json& msg) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        pending_response_ = msg;
-        response_ready_ = true;
-        cv_.notify_one();
-    });
-}
-
-std::vector<ToolDefinition> Client::Impl::list_tools()
-{
-    json req;
-    req["jsonrpc"] = "2.0";
-    req["id"] = request_id_++;
-    req["method"] = "tools/list";
-    req["params"] = json::object();
-
-    response_ready_ = false;
-    transport_->send(req);
-
-    std::unique_lock<std::mutex> lock(mutex_);
-    cv_.wait_for(lock, std::chrono::seconds(10), [this] { return response_ready_; });
-
-    if (!response_ready_) return {};
-
-    std::vector<ToolDefinition> tools;
-    if (pending_response_.contains("result") && pending_response_["result"].contains("tools")) {
-        for (const auto& t : pending_response_["result"]["tools"]) {
-            tools.push_back({
-                t["name"].get<std::string>(),
-                t.value("description", ""),
-                t.value("parameters", json::object())
-            });
-        }
-    }
-    return tools;
-}
-
-CallResult Client::Impl::call_tool(const std::string& name, const json& args)
-{
-    json req;
-    req["jsonrpc"] = "2.0";
-    req["id"] = request_id_++;
-    req["method"] = "tools/call";
-    req["params"] = {{"name", name}, {"arguments", args}};
-
-    response_ready_ = false;
-    transport_->send(req);
-
-    std::unique_lock<std::mutex> lock(mutex_);
-    cv_.wait_for(lock, std::chrono::seconds(60), [this] { return response_ready_; });
-
-    if (!response_ready_) return {false, "Request timed out"};
-    if (pending_response_.contains("error")) return {false, pending_response_["error"].value("message", "Unknown error")};
-    if (pending_response_.contains("result")) return {true, pending_response_["result"].value("output", "")};
-
-    return {false, "Invalid response"};
 }
 
 

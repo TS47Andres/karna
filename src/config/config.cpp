@@ -11,14 +11,9 @@ Config Config::default_config()
     Config cfg;
     cfg.openrouter.base_url = "https://openrouter.ai/api/v1";
     cfg.openrouter.default_model = "deepseek/deepseek-v4-flash";
-    cfg.openrouter.max_tokens = 4096;
-    cfg.openrouter.temperature = 0.7;
     cfg.openrouter.api_key = "";
     cfg.exa.api_key = "";
     cfg.exa.num_results = 5;
-    cfg.theme = "default";
-    cfg.auto_approve_commands = false;
-    cfg.max_history_age = 100;
     return cfg;
 }
 
@@ -30,11 +25,6 @@ std::string Config::config_path()
 std::string Config::storage_dir()
 {
     return (fs::current_path() / ".karna").string();
-}
-
-std::string Config::mcp_config_path()
-{
-    return (fs::path(storage_dir()) / "mcp.toml").string();
 }
 
 Config Config::load()
@@ -62,12 +52,6 @@ Config Config::load_from_file(const std::string& path)
             if (auto* model = openrouter->get("default_model")) {
                 cfg.openrouter.default_model = model->as_string()->get();
             }
-            if (auto* mt = openrouter->get("max_tokens")) {
-                cfg.openrouter.max_tokens = static_cast<int>(mt->as_integer()->get());
-            }
-            if (auto* temp = openrouter->get("temperature")) {
-                cfg.openrouter.temperature = temp->as_floating_point()->get();
-            }
         }
 
         if (auto* exa = tbl["exa"].as_table()) {
@@ -79,15 +63,6 @@ Config Config::load_from_file(const std::string& path)
             }
         }
 
-        if (auto* theme = tbl["theme"].as_string()) {
-            cfg.theme = theme->get();
-        }
-        if (auto* aa = tbl["auto_approve_commands"].as_boolean()) {
-            cfg.auto_approve_commands = aa->get();
-        }
-        if (auto* mha = tbl["max_history_age"].as_integer()) {
-            cfg.max_history_age = static_cast<int>(mha->get());
-        }
     } catch (const std::exception& e) {
         std::cerr << "Warning: failed to parse config: " << e.what() << std::endl;
     }
@@ -104,16 +79,11 @@ void Config::save(const std::string& path)
     }
 
     toml::table tbl;
-    tbl.emplace("theme", theme);
-    tbl.emplace("auto_approve_commands", auto_approve_commands);
-    tbl.emplace("max_history_age", max_history_age);
 
     toml::table or_tbl;
     or_tbl.emplace("api_key", openrouter.api_key);
     or_tbl.emplace("base_url", openrouter.base_url);
     or_tbl.emplace("default_model", openrouter.default_model);
-    or_tbl.emplace("max_tokens", openrouter.max_tokens);
-    or_tbl.emplace("temperature", openrouter.temperature);
     tbl.emplace("openrouter", or_tbl);
 
     toml::table exa_tbl;

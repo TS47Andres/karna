@@ -15,9 +15,19 @@
 #include <cctype>
 #include <sstream>
 #include <thread>
+#include <iostream>
 
 namespace {
 constexpr int kDefaultBashTimeoutMs = 60 * 1000;
+
+std::string trim_copy(const std::string& value)
+{
+    const auto first = value.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return {};
+
+    const auto last = value.find_last_not_of(" \t\r\n");
+    return value.substr(first, last - first + 1);
+}
 }
 
 Controller::Controller()
@@ -62,14 +72,15 @@ void Controller::load_sessions()
     }
 
     const auto saved_active = session_store_.active_id();
-    if (!saved_active.empty() && runtime(saved_active)) {
+    auto* saved_runtime = saved_active.empty() ? nullptr : runtime(saved_active);
+    if (saved_runtime && saved_runtime->session.history().empty()) {
         active_session_id_ = saved_active;
-    } else if (!sessions_.empty()) {
-        active_session_id_ = sessions_.begin()->first;
     } else {
         create_session();
     }
-    session_store_.set_active_id(active_session_id_);
+    if (!session_store_.set_active_id(active_session_id_)) {
+        std::cerr << "Warning: failed to persist the active session.\n";
+    }
 }
 
 Controller::SessionRuntime& Controller::create_session()
@@ -80,13 +91,27 @@ Controller::SessionRuntime& Controller::create_session()
     sessions_.emplace(id, std::move(session));
     active_session_id_ = id;
     persist(*result);
-    session_store_.set_active_id(id);
+    if (!session_store_.set_active_id(id)) {
+        std::cerr << "Warning: failed to persist the active session.\n";
+    }
     return *result;
 }
 
 void Controller::persist(SessionRuntime& runtime)
 {
-    session_store_.save(runtime.session.snapshot());
+    const auto id = runtime.session.id();
+    if (!session_store_.save(runtime.session.snapshot())) {
+        if (persistence_failures_.insert(id).second) {
+            std::cerr << "Warning: failed to persist session " << id << ".\n";
+            if (tui_ && id == active_session_id_) {
+                tui_->chat_view().show_system_message(
+                    "Warning: failed to save the current session.");
+                tui_->request_refresh();
+            }
+        }
+    } else {
+        persistence_failures_.erase(id);
+    }
     refresh_session_picker();
 }
 
@@ -145,19 +170,27 @@ void Controller::update_active_ui()
 
 void Controller::switch_session(const std::string& id)
 {
-    if (!runtime(id)) {
-        if (const auto data = session_store_.load(id)) {
+    const std::string session_id = trim_copy(id);
+    if (session_id.empty()) {
+        tui_->chat_view().show_system_message("Session ID cannot be empty.");
+        return;
+    }
+
+    if (!runtime(session_id)) {
+        if (const auto data = session_store_.load(session_id)) {
             auto session = std::make_unique<SessionRuntime>(config_, data->id, data->title);
             session->session.restore(*data);
             sessions_.emplace(data->id, std::move(session));
         }
     }
-    if (!runtime(id)) {
-        tui_->chat_view().show_system_message("Unknown session: " + id);
+    if (!runtime(session_id)) {
+        tui_->chat_view().show_system_message("Unknown session: " + session_id);
         return;
     }
-    active_session_id_ = id;
-    session_store_.set_active_id(id);
+    active_session_id_ = session_id;
+    if (!session_store_.set_active_id(session_id)) {
+        std::cerr << "Warning: failed to persist the active session.\n";
+    }
     auto& current = active_runtime();
     if (!current.session.provider()) {
         setup_provider(current);
@@ -166,6 +199,53 @@ void Controller::switch_session(const std::string& id)
     update_active_ui();
     refresh_session_picker();
     tui_->chat_view().show_system_message("Switched to " + current.session.title());
+}
+
+void Controller::delete_current_session()
+{
+    const std::string deleted_id = active_session_id_;
+    auto* current = runtime(deleted_id);
+    if (!current) return;
+
+    current->abort_pending.store(false);
+    current->tool_cancel_requested.store(true);
+    if (auto* provider = current->session.provider()) {
+        provider->abort();
+    }
+    {
+        std::lock_guard<std::mutex> lock(current->tool_worker_mutex);
+        if (current->tool_worker.joinable()) {
+            current->tool_worker.join();
+        }
+    }
+    current->processing.store(false);
+
+    if (!session_store_.remove(deleted_id)) {
+        current->tool_cancel_requested.store(false);
+        tui_->chat_view().show_system_message("Failed to delete the current session.");
+        tui_->request_refresh();
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(sessions_mutex_);
+        sessions_.erase(deleted_id);
+    }
+    persistence_failures_.erase(deleted_id);
+
+    const auto remaining = session_store_.load_all();
+    if (remaining.empty()) {
+        auto& next = create_session();
+        setup_provider(next);
+        refresh_active_view();
+        update_active_ui();
+        refresh_session_picker();
+        tui_->chat_view().show_system_message("Deleted the session. Created a new session.");
+    } else {
+        switch_session(remaining.front().id);
+        tui_->chat_view().show_system_message("Deleted the session.");
+    }
+    tui_->request_refresh();
 }
 
 void Controller::show_sessions()
@@ -314,8 +394,13 @@ void Controller::handle_slash_command(const std::string& cmd, const std::string&
         return;
     }
 
+    if (cmd == "delete") {
+        delete_current_session();
+        return;
+    }
+
     if (cmd == "sessions") {
-        const std::string trimmed = args;
+        const std::string trimmed = trim_copy(args);
         if (trimmed.empty() || trimmed == "list" || trimmed == "refresh") {
             show_sessions();
         } else if (trimmed == "next" || trimmed == "prev") {
@@ -358,7 +443,6 @@ void Controller::handle_slash_command(const std::string& cmd, const std::string&
             tui_->chat_view(),
             &command_registry_,
             &tool_registry_,
-            &skill_registry_,
             [this]() { tui_->request_refresh(); },
             [this](const std::string& key) { set_api_key(key); },
             [this](const std::string& key) { set_exa_api_key(key); }

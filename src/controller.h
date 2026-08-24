@@ -10,6 +10,7 @@
 #include <thread>
 #include <vector>
 #include <cstdint>
+#include <set>
 
 #include "config/config.h"
 #include "core/session.h"
@@ -17,8 +18,6 @@
 #include "core/provider.h"
 #include "core/message.h"
 #include "core/tool.h"
-#include "tools/registry.h"
-#include "skills/registry.h"
 #include "commands/registry.h"
 #include "tui/app.h"
 
@@ -52,8 +51,8 @@ private:
     mutable std::mutex sessions_mutex_;
     std::map<std::string, std::unique_ptr<SessionRuntime>> sessions_;
     std::string active_session_id_;
+    std::set<std::string> persistence_failures_;
     ToolRegistry tool_registry_;
-    SkillRegistry skill_registry_;
     CommandRegistry command_registry_;
     std::unique_ptr<TuiApp> tui_;
 
@@ -80,6 +79,7 @@ private:
     void refresh_active_view();
     void update_active_ui();
     void switch_session(const std::string& id);
+    void delete_current_session();
     void show_sessions();
     void setup_tools();
     void setup_commands();

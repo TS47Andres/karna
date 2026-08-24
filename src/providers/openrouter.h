@@ -27,14 +27,9 @@ public:
     int count_tokens(const std::string& text) const override;
     std::string model() const override;
 
-    void set_temperature(double temp);
-    void set_max_tokens(int max);
-
 private:
     ProviderConfig config_;
     std::string model_;
-    double temperature_;
-    int max_tokens_;
     std::atomic<bool> abort_{false};
     mutable std::mutex worker_mutex_;
     std::thread worker_;

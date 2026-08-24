@@ -116,32 +116,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(md4c)
 
-FetchContent_Declare(
-  spdlog
-  GIT_REPOSITORY https://github.com/gabime/spdlog.git
-  GIT_TAG v1.14.1
-)
-FetchContent_MakeAvailable(spdlog)
-
-if(KARNA_BUILD_TESTS)
-  enable_testing()
-  FetchContent_Declare(
-    Catch2
-    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-    GIT_TAG v3.7.0
-  )
-  FetchContent_MakeAvailable(Catch2)
-
-  FetchContent_Declare(
-    googletest
-    GIT_REPOSITORY https://github.com/google/googletest.git
-    GIT_TAG v1.14.0
-  )
-  # Prevent gtest from overriding our compiler settings on Windows
-  set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-  FetchContent_MakeAvailable(googletest)
-endif()
-
 set(LIB_SOURCES
   src/controller.cpp
   src/config/config.cpp
@@ -158,24 +132,17 @@ set(LIB_SOURCES
   src/net/curl_setup.cpp
   src/tools/glob.cpp
   src/tools/grep.cpp
-  src/skills/registry.cpp
-  src/skills/explain.cpp
-  src/skills/fix_bug.cpp
-  src/skills/add_feature.cpp
   src/commands/registry.cpp
   src/commands/help.cpp
   src/commands/clear.cpp
   src/commands/model.cpp
-  src/commands/tokens.cpp
-  src/commands/skills_list.cpp
   src/commands/cost.cpp
   src/commands/export_cmd.cpp
   src/commands/session_cmd.cpp
   src/commands/sessions_cmd.cpp
   src/commands/new_cmd.cpp
+  src/commands/delete_cmd.cpp
   src/core/session_store.cpp
-  src/mcp/client.cpp
-  src/mcp/server.cpp
   src/mcp/transport.cpp
   src/tui/app.cpp
   src/tui/sidebar.cpp
@@ -185,13 +152,10 @@ set(LIB_SOURCES
   src/tui/status_bar.cpp
   src/process/runner.cpp
   src/io/file_ops.cpp
-  src/io/watcher.cpp
   src/project/context.cpp
-  src/project/ignore.cpp
   src/token/counter.cpp
   src/cli/init.cpp
   src/cli/chat.cpp
-  src/cli/run.cpp
   src/cli/config_cmd.cpp
   src/cli/mcp_cmd.cpp
 )
@@ -202,7 +166,6 @@ target_include_directories(karna_lib PRIVATE ${md4c_SOURCE_DIR}/src)
 target_compile_definitions(karna_lib PRIVATE
   KARNA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
 )
-
 target_link_libraries(karna_lib PUBLIC
   ftxui::screen
   ftxui::dom
@@ -211,7 +174,6 @@ target_link_libraries(karna_lib PUBLIC
   nlohmann_json::nlohmann_json
   tomlplusplus::tomlplusplus
   md4c
-  spdlog::spdlog
   CURL::libcurl
 )
 
@@ -235,9 +197,3 @@ add_custom_command(TARGET karna POST_BUILD
     "${CMAKE_SOURCE_DIR}/assets/Karna.jpg"
     "$<TARGET_FILE_DIR:karna>/assets/Karna.jpg"
 )
-
-option(KARNA_BUILD_TESTS "Build tests" OFF)
-
-if(KARNA_BUILD_TESTS)
-  add_subdirectory(tests)
-endif()

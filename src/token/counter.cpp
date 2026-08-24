@@ -1,10 +1,5 @@
 #include "token/counter.h"
 
-int TokenCounter::estimate(const std::string& text)
-{
-    return estimate_for_model(text, "gpt-4o");
-}
-
 int TokenCounter::estimate_for_model(const std::string& text, const std::string& /*model*/)
 {
     int tokens = 0;

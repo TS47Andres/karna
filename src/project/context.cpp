@@ -2,7 +2,6 @@
 
 #include <filesystem>
 #include <fstream>
-#include <sstream>
 
 namespace fs = std::filesystem;
 
@@ -63,14 +62,4 @@ ProjectContext ProjectContext::discover(const std::string& start_path)
     }
 
     return ctx;
-}
-
-std::string ProjectContext::summarize() const
-{
-    std::ostringstream out;
-    out << "Project: " << root_path;
-    if (has_git) {
-        out << " (git)";
-    }
-    return out.str();
 }

@@ -94,6 +94,7 @@ private:
     float scroll_target_{0.0f};
     int max_scroll_line_{0};
     bool scroll_to_end_requested_{false};
+    bool scroll_to_end_immediately_requested_{false};
     int focused_tool_index_{-1};
     bool tool_view_mode_{false};
     std::function<void()> on_scroll_to_bottom_;

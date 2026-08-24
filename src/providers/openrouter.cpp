@@ -142,8 +142,6 @@ struct OpenRouterProvider::WriteCtx {
 OpenRouterProvider::OpenRouterProvider(const ProviderConfig& config)
     : config_(config)
     , model_(config.default_model)
-    , temperature_(config.temperature)
-    , max_tokens_(config.max_tokens)
 {}
 
 OpenRouterProvider::~OpenRouterProvider()
@@ -215,16 +213,6 @@ int OpenRouterProvider::context_window() const
     return context_window_;
 }
 
-void OpenRouterProvider::set_temperature(double temp)
-{
-    temperature_ = temp;
-}
-
-void OpenRouterProvider::set_max_tokens(int max)
-{
-    max_tokens_ = max;
-}
-
 void OpenRouterProvider::abort()
 {
     abort_.store(true);
@@ -258,8 +246,6 @@ json OpenRouterProvider::build_request_body(
     json body;
     body["model"] = model;
     body["stream"] = true;
-    body["max_tokens"] = max_tokens_;
-    body["temperature"] = temperature_;
     body["stream_options"] = {{"include_usage", true}};
 
     json messages = json::array();
@@ -536,6 +522,9 @@ void OpenRouterProvider::send(
                 curl_easy_setopt(curl.get(), CURLOPT_XFERINFOFUNCTION, abort_progress_callback);
                 curl_easy_setopt(curl.get(), CURLOPT_XFERINFODATA, &abort_);
                 curl_easy_setopt(curl.get(), CURLOPT_NOPROGRESS, 0L);
+                curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, 30L);
+                curl_easy_setopt(curl.get(), CURLOPT_LOW_SPEED_LIMIT, 1L);
+                curl_easy_setopt(curl.get(), CURLOPT_LOW_SPEED_TIME, 60L);
                 curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 300L);
                 curl_easy_setopt(curl.get(), CURLOPT_SSL_VERIFYPEER, 1L);
                 curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, "karna/0.1.0");

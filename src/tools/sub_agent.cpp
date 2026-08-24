@@ -6,7 +6,6 @@
 #include "tools/glob.h"
 #include "tools/grep.h"
 #include "tools/read.h"
-#include "tools/registry.h"
 #include "tools/search.h"
 #include "tools/write.h"
 
