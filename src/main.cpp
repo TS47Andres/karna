@@ -5,7 +5,6 @@
 #include "cli/init.h"
 #include "cli/chat.h"
 #include "cli/config_cmd.h"
-#include "cli/mcp_cmd.h"
 #include <curl/curl.h>
 
 int main(int argc, char** argv)
@@ -23,7 +22,6 @@ int main(int argc, char** argv)
     auto* init_cmd = app.add_subcommand("init", "Initialize Karna configuration");
     auto* chat_cmd = app.add_subcommand("chat", "Start an interactive chat session");
     auto* config_cmd = app.add_subcommand("config", "View or edit configuration");
-    auto* mcp_cmd_app = app.add_subcommand("mcp", "Run as an MCP server");
 
     CLI11_PARSE(app, argc, argv);
 
@@ -36,10 +34,6 @@ int main(int argc, char** argv)
     if (config_cmd->parsed()) {
         return cli::run_config(argc, argv);
     }
-    if (mcp_cmd_app->parsed()) {
-        return cli::run_mcp(argc, argv);
-    }
-
     // Default: run chat
     return cli::run_chat(argc, argv);
 }

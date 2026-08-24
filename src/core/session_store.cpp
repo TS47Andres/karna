@@ -55,6 +55,68 @@ ToolCall tool_call_from_json(const json& value)
     return call;
 }
 
+std::string display_kind_to_string(MessageDisplayKind kind)
+{
+    switch (kind) {
+        case MessageDisplayKind::Activity: return "activity";
+        case MessageDisplayKind::Diff: return "diff";
+        case MessageDisplayKind::Panel: return "panel";
+        case MessageDisplayKind::SubAgent: return "sub_agent";
+    }
+    return "activity";
+}
+
+std::optional<MessageDisplayKind> display_kind_from_string(const std::string& kind)
+{
+    if (kind == "activity") return MessageDisplayKind::Activity;
+    if (kind == "diff") return MessageDisplayKind::Diff;
+    if (kind == "panel") return MessageDisplayKind::Panel;
+    if (kind == "sub_agent") return MessageDisplayKind::SubAgent;
+    return std::nullopt;
+}
+
+json display_to_json(const MessageDisplay& display)
+{
+    return {
+        {"kind", display_kind_to_string(display.kind)},
+        {"tool_name", display.tool_name},
+        {"label", display.label},
+        {"parameter", display.parameter},
+        {"extra", display.extra},
+        {"before", display.before},
+        {"after", display.after},
+        {"task", display.task},
+        {"mode", display.mode},
+        {"latest_tool", display.latest_tool},
+        {"transcript", display.transcript},
+        {"tools_used", display.tools_used},
+        {"success", display.success}
+    };
+}
+
+std::optional<MessageDisplay> display_from_json(const json& value)
+{
+    if (!value.is_object()) return std::nullopt;
+    const auto kind = display_kind_from_string(value.value("kind", ""));
+    if (!kind) return std::nullopt;
+
+    MessageDisplay display;
+    display.kind = *kind;
+    display.tool_name = value.value("tool_name", "");
+    display.label = value.value("label", "");
+    display.parameter = value.value("parameter", "");
+    display.extra = value.value("extra", "");
+    display.before = value.value("before", "");
+    display.after = value.value("after", "");
+    display.task = value.value("task", "");
+    display.mode = value.value("mode", "");
+    display.latest_tool = value.value("latest_tool", "");
+    display.transcript = value.value("transcript", "");
+    display.tools_used = value.value("tools_used", 0);
+    display.success = value.value("success", false);
+    return display;
+}
+
 json message_to_json(const Message& message)
 {
     json value = {
@@ -64,6 +126,7 @@ json message_to_json(const Message& message)
     };
     if (message.name) value["name"] = *message.name;
     if (message.tool_call_id) value["tool_call_id"] = *message.tool_call_id;
+    if (message.display) value["display"] = display_to_json(*message.display);
     for (const auto& call : message.tool_calls) {
         value["tool_calls"].push_back(tool_call_to_json(call));
     }
@@ -80,6 +143,9 @@ Message message_from_json(const json& value)
     }
     if (value.contains("tool_call_id") && value["tool_call_id"].is_string()) {
         message.tool_call_id = value["tool_call_id"].get<std::string>();
+    }
+    if (value.contains("display")) {
+        message.display = display_from_json(value["display"]);
     }
     if (value.contains("tool_calls") && value["tool_calls"].is_array()) {
         for (const auto& call : value["tool_calls"]) {

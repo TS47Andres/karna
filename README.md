@@ -1,6 +1,6 @@
 # Karna
 
-Karna is an AI coding harness for the terminal. It provides an interactive FTXUI chat interface, streaming model responses, filesystem tools, shell execution, web search, and MCP tool serving.
+Karna is an AI coding harness for the terminal. It provides an interactive FTXUI chat interface, streaming model responses, filesystem tools, shell execution, and web search.
 
 ## Features
 
@@ -14,7 +14,6 @@ Karna is an AI coding harness for the terminal. It provides an interactive FTXUI
 - Exa-powered web search.
 - Compact Bash and search result panels. Five lines are shown by default; press `Ctrl+T` to expand the selected tool result.
 - Line-based chat scrolling with smooth animation.
-- MCP server mode for exposing the built-in tools over stdio.
 
 ## Requirements
 
@@ -47,7 +46,6 @@ Available CLI subcommands:
 | `init` | Initialize configuration from environment variables |
 | `chat` | Start an interactive chat session |
 | `config` | Display current configuration and masked API keys |
-| `mcp` | Start the stdio MCP server |
 
 ## Configure API Keys
 
@@ -123,16 +121,6 @@ Slash commands are entered in the chat input bar.
 
 On Windows, `bash` commands use native PowerShell syntax. On Unix-like systems, they use the platform shell.
 
-## MCP Server
-
-Start Karna as an MCP stdio server with:
-
-```powershell
-.\build-msys\karna.exe mcp
-```
-
-The server exposes the built-in tools through MCP discovery and tool calls.
-
 ## Project Layout
 
 ```text
@@ -141,7 +129,6 @@ src/
 ├── commands/     Interactive slash commands
 ├── config/       TOML configuration loading and saving
 ├── core/         Sessions, messages, providers, and tool interfaces
-├── mcp/          MCP transport and server implementation
 ├── providers/    Model provider implementations
 ├── tools/        Built-in agent tools
 ├── tui/          FTXUI chat interface and widgets

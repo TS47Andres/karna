@@ -28,6 +28,29 @@ enum class FinishReason {
     Unknown
 };
 
+enum class MessageDisplayKind {
+    Activity,
+    Diff,
+    Panel,
+    SubAgent
+};
+
+struct MessageDisplay {
+    MessageDisplayKind kind{MessageDisplayKind::Activity};
+    std::string tool_name;
+    std::string label;
+    std::string parameter;
+    std::string extra;
+    std::string before;
+    std::string after;
+    std::string task;
+    std::string mode;
+    std::string latest_tool;
+    std::string transcript;
+    int tools_used{0};
+    bool success{false};
+};
+
 struct Delta {
     std::optional<std::string> content;
     std::optional<ToolCall> tool_call;
@@ -40,6 +63,7 @@ struct Message {
     std::optional<std::string> name;
     std::vector<ToolCall> tool_calls;
     std::optional<std::string> tool_call_id;
+    std::optional<MessageDisplay> display;
 };
 
 struct Usage {

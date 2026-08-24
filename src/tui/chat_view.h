@@ -19,7 +19,6 @@ public:
     void load_history(const std::vector<Message>& messages);
     void append_to_last(const std::string& content);
     void add_delta(const Delta& delta);
-    void append_tool_call(const std::string& text);
     void show_system_message(const std::string& msg);
     void show_tool_activity(const std::string& tool_name, const std::string& label);
     void show_tool_diff(const std::string& tool_name, const std::string& path,
@@ -29,12 +28,10 @@ public:
                            const std::string& tool_name = "bash");
     void append_bash_output(const std::string& key, const std::string& output);
     void finish_bash(const std::string& key, const std::string& output, bool success);
-    void toggle_bash_view();
     void show_subagent_started(const std::string& key, const std::string& task,
                                const std::string& mode);
     void update_subagent(const std::string& key, const std::string& event);
     void finish_subagent(const std::string& key, const std::string& report, bool success);
-    void toggle_last_tool_view();
     bool focus_next_tool();
     bool has_focused_tool() const;
     bool enter_focused_tool_view();

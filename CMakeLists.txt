@@ -143,7 +143,6 @@ set(LIB_SOURCES
   src/commands/new_cmd.cpp
   src/commands/delete_cmd.cpp
   src/core/session_store.cpp
-  src/mcp/transport.cpp
   src/tui/app.cpp
   src/tui/sidebar.cpp
   src/tui/chat_view.cpp
@@ -157,7 +156,6 @@ set(LIB_SOURCES
   src/cli/init.cpp
   src/cli/chat.cpp
   src/cli/config_cmd.cpp
-  src/cli/mcp_cmd.cpp
 )
 
 add_library(karna_lib STATIC ${LIB_SOURCES})

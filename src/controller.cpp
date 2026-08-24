@@ -28,6 +28,73 @@ std::string trim_copy(const std::string& value)
     const auto last = value.find_last_not_of(" \t\r\n");
     return value.substr(first, last - first + 1);
 }
+
+void append_subagent_event(std::string& transcript, bool& tool_output_started,
+                           const std::string& event)
+{
+    if (event == "status:thinking") {
+        transcript += "\n\n*Thinking...*";
+    } else if (event.rfind("assistant\n", 0) == 0) {
+        const std::string content = event.substr(10);
+        if (!content.empty()) {
+            transcript += "\n\n### Sub-agent\n\n" + content;
+        }
+    } else if (event.rfind("tool_call\n", 0) == 0) {
+        const std::string payload = event.substr(10);
+        const size_t separator = payload.find('\n');
+        const std::string name = separator == std::string::npos
+            ? payload : payload.substr(0, separator);
+        const std::string arguments = separator == std::string::npos
+            ? "{}" : payload.substr(separator + 1);
+        transcript += "\n\n#### Tool: `" + name + "`\n\n";
+        transcript += "```json\n" + arguments + "\n```\n\n**Result**\n\n```text\n";
+        tool_output_started = false;
+    } else if (event.rfind("tool_output\n", 0) == 0) {
+        const std::string payload = event.substr(12);
+        const size_t separator = payload.find('\n');
+        if (separator != std::string::npos) {
+            const std::string output = payload.substr(separator + 1);
+            if (!output.empty()) {
+                transcript += output;
+                tool_output_started = true;
+            }
+        }
+    } else if (event.rfind("tool_result\n", 0) == 0) {
+        const std::string payload = event.substr(12);
+        const size_t separator = payload.find('\n');
+        const std::string output = separator == std::string::npos
+            ? "" : payload.substr(separator + 1);
+        if (!tool_output_started && !output.empty()) {
+            transcript += output;
+        }
+        transcript += "\n```";
+        tool_output_started = false;
+    }
+}
+
+template <typename Execution>
+std::string tool_activity_summary(const std::string& tool_name,
+                                  const Execution& execution)
+{
+    if (!execution.success) return tool_name + " failed";
+    if (tool_name == "read") {
+        return "Read " + execution.arguments.value("path", "file");
+    }
+    if (execution.output.rfind("No files matching", 0) == 0 ||
+        execution.output.rfind("No matches found", 0) == 0) {
+        return tool_name + ": no matches";
+    }
+
+    const auto line_count = static_cast<int>(std::count(
+        execution.output.begin(), execution.output.end(), '\n')) +
+        (!execution.output.empty() && execution.output.back() != '\n' ? 1 : 0);
+    if (tool_name == "grep") {
+        return "Grep \"" + execution.arguments.value("pattern", "") + " · " +
+            std::to_string(line_count) + " match" + (line_count == 1 ? "" : "es");
+    }
+    return "Glob \"" + execution.arguments.value("pattern", "") + " · " +
+        std::to_string(line_count) + " result" + (line_count == 1 ? "" : "s");
+}
 }
 
 Controller::Controller()
@@ -680,6 +747,8 @@ void Controller::execute_tool_calls_and_continue(const std::string& session_id, 
                             execution.arguments = args;
 
                             ToolOutputCallback on_output;
+                            std::string subagent_transcript;
+                            bool subagent_tool_output_started = false;
                             if (tc.function_name == "bash") {
                                 execution.display_key = "bash-" +
                                     std::to_string(runtime->tool_display_sequence.fetch_add(1));
@@ -719,11 +788,16 @@ void Controller::execute_tool_calls_and_continue(const std::string& session_id, 
                                 const std::string key = execution.display_key;
                                 const std::string task = args.value("task", "");
                                 const std::string mode = args.value("mode", "R");
+                                subagent_transcript = "### Task\n\n" + task +
+                                    "\n\n*Starting sub-agent...*";
                                 tui_->post([this, session_id, key, task, mode]() {
                                     if (session_id == active_session_id_)
                                         tui_->chat_view().show_subagent_started(key, task, mode);
                                 });
-                                on_output = [this, session_id, key](const std::string& event) {
+                                on_output = [this, session_id, key, &subagent_transcript,
+                                             &subagent_tool_output_started](const std::string& event) {
+                                    append_subagent_event(
+                                        subagent_transcript, subagent_tool_output_started, event);
                                     tui_->post([this, session_id, key, event]() {
                                         if (session_id == active_session_id_)
                                             tui_->chat_view().update_subagent(key, event);
@@ -739,6 +813,13 @@ void Controller::execute_tool_calls_and_continue(const std::string& session_id, 
                             execution.success = result.success;
                             execution.output = std::move(result.output);
                             execution.data = std::move(result.data);
+                            if (tc.function_name == "sub_agent") {
+                                if (subagent_tool_output_started) {
+                                    subagent_transcript += "\n```";
+                                }
+                                subagent_transcript += "\n\n### Final report\n\n" + execution.output;
+                                execution.display_transcript = std::move(subagent_transcript);
+                            }
                         } catch (const json::exception& e) {
                             execution.output = std::string("Invalid tool arguments: ") + e.what();
                         } catch (const std::exception& e) {
@@ -836,31 +917,64 @@ void Controller::finish_tool_execution(const std::string& session_id, std::vecto
         if (!tc.function_name.empty()) {
             result_msg.name = tc.function_name;
         }
+
+        if (tc.function_name == "read" || tc.function_name == "glob" || tc.function_name == "grep") {
+            MessageDisplay display;
+            display.kind = MessageDisplayKind::Activity;
+            display.tool_name = tc.function_name;
+            display.label = tool_activity_summary(tc.function_name, execution);
+            result_msg.display = std::move(display);
+        } else if ((tc.function_name == "bash" || tc.function_name == "search") &&
+                   !execution.display_key.empty()) {
+            MessageDisplay display;
+            display.kind = MessageDisplayKind::Panel;
+            display.tool_name = tc.function_name;
+            display.parameter = tc.function_name == "bash"
+                ? execution.data.value("command", execution.arguments.value("command", ""))
+                : execution.arguments.value("query", "");
+            if (tc.function_name == "bash") {
+                const int timeout = execution.data.value("timeout", kDefaultBashTimeoutMs);
+                const bool explicit_timeout = execution.arguments.contains("timeout") &&
+                    execution.arguments["timeout"].is_number_integer() &&
+                    execution.arguments["timeout"].get<int>() > 0;
+                display.extra = std::to_string(timeout) + "ms" +
+                    (explicit_timeout ? "" : " (default)");
+            } else {
+                display.extra = "Exa";
+            }
+            display.success = tc.function_name == "bash"
+                ? bash_succeeded(execution)
+                : execution.success;
+            result_msg.display = std::move(display);
+        } else if (tc.function_name == "sub_agent" && !execution.display_key.empty()) {
+            MessageDisplay display;
+            display.kind = MessageDisplayKind::SubAgent;
+            display.tool_name = "sub_agent";
+            display.task = execution.arguments.value("task", "");
+            display.mode = execution.data.value("mode", execution.arguments.value("mode", "R"));
+            display.latest_tool = execution.data.value("latest_tool", "");
+            display.tools_used = execution.data.value("tools_used", 0);
+            display.transcript = execution.display_transcript;
+            display.success = execution.success;
+            result_msg.display = std::move(display);
+        } else if ((tc.function_name == "write" || tc.function_name == "edit") &&
+                   execution.success && execution.data.is_object() &&
+                   execution.data.contains("path") && execution.data.contains("before") &&
+                   execution.data.contains("after")) {
+            MessageDisplay display;
+            display.kind = MessageDisplayKind::Diff;
+            display.tool_name = tc.function_name;
+            display.parameter = execution.data.value("path", tc.function_name);
+            display.before = execution.data.value("before", "");
+            display.after = execution.data.value("after", "");
+            result_msg.display = std::move(display);
+        }
         current->session.add_message(result_msg);
 
         if (session_id == active_session_id_ &&
             (tc.function_name == "read" || tc.function_name == "glob" || tc.function_name == "grep")) {
-            std::string summary;
-            if (!execution.success) {
-                summary = tc.function_name + " failed";
-            } else if (tc.function_name == "read") {
-                summary = "Read " + execution.arguments.value("path", "file");
-            } else if (execution.output.rfind("No files matching", 0) == 0 ||
-                       execution.output.rfind("No matches found", 0) == 0) {
-                summary = tc.function_name + ": no matches";
-            } else {
-                const auto line_count = static_cast<int>(std::count(
-                    execution.output.begin(), execution.output.end(), '\n')) +
-                    (!execution.output.empty() && execution.output.back() != '\n' ? 1 : 0);
-                if (tc.function_name == "grep") {
-                    summary = "Grep \"" + execution.arguments.value("pattern", "") + "\" · " +
-                        std::to_string(line_count) + " match" + (line_count == 1 ? "" : "es");
-                } else {
-                    summary = "Glob \"" + execution.arguments.value("pattern", "") + "\" · " +
-                        std::to_string(line_count) + " result" + (line_count == 1 ? "" : "s");
-                }
-            }
-            tui_->chat_view().show_tool_activity(tc.function_name, summary);
+            tui_->chat_view().show_tool_activity(
+                tc.function_name, tool_activity_summary(tc.function_name, execution));
         } else if (session_id == active_session_id_ &&
                    (tc.function_name == "bash" || tc.function_name == "search")) {
             const bool succeeded = tc.function_name == "bash"

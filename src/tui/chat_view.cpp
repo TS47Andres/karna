@@ -236,12 +236,65 @@ void ChatView::add_message(const Message& msg)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     const bool was_empty = messages_.empty();
-    std::string content = msg.content;
-    for (const auto& tc : msg.tool_calls) {
-        content += "\n[Tool call: " + tc.function_name + "]";
-    }
     std::string name = msg.name ? *msg.name : "";
-    messages_.push_back({msg.role, content, name});
+    if (msg.display) {
+        const auto& source = *msg.display;
+        DisplayMessage display;
+        display.role = msg.role;
+        display.content = msg.content;
+        display.tool_name = source.tool_name.empty() ? name : source.tool_name;
+        display.tool_parameter = source.parameter;
+        display.tool_extra = source.extra;
+
+        switch (source.kind) {
+            case MessageDisplayKind::Activity:
+                display.content = source.label;
+                display.tool_display = ToolDisplay::Activity;
+                break;
+            case MessageDisplayKind::Diff: {
+                display.tool_display = ToolDisplay::Diff;
+                display.content = source.parameter;
+                display.before = source.before;
+                display.after = source.after;
+                const auto before_lines = split_lines(display.before);
+                const auto after_lines = split_lines(display.after);
+                size_t prefix = 0;
+                while (prefix < before_lines.size() && prefix < after_lines.size() &&
+                       before_lines[prefix] == after_lines[prefix]) {
+                    ++prefix;
+                }
+                size_t suffix = 0;
+                while (suffix < before_lines.size() - prefix &&
+                       suffix < after_lines.size() - prefix &&
+                       before_lines[before_lines.size() - 1 - suffix] ==
+                           after_lines[after_lines.size() - 1 - suffix]) {
+                    ++suffix;
+                }
+                display.added_lines = static_cast<int>(after_lines.size() - prefix - suffix);
+                display.deleted_lines = static_cast<int>(before_lines.size() - prefix - suffix);
+                display.tool_extra = "+" + std::to_string(display.added_lines) +
+                    " -" + std::to_string(display.deleted_lines);
+                break;
+            }
+            case MessageDisplayKind::Panel:
+                display.tool_display = ToolDisplay::Bash;
+                display.bash_success = source.success;
+                break;
+            case MessageDisplayKind::SubAgent:
+                display.tool_name = "sub_agent";
+                display.tool_display = ToolDisplay::SubAgent;
+                display.subagent_mode = source.mode;
+                display.subagent_task = source.task;
+                display.subagent_latest_tool = source.latest_tool;
+                display.subagent_tools_used = source.tools_used;
+                display.subagent_transcript = source.transcript;
+                display.subagent_success = source.success;
+                break;
+        }
+        messages_.push_back(std::move(display));
+    } else {
+        messages_.push_back({msg.role, msg.content, name});
+    }
     if (was_empty) {
         scroll_to_end_requested_ = true;
     }
@@ -269,16 +322,6 @@ void ChatView::add_delta(const Delta& delta)
         if (messages_.empty() || messages_.back().role != MessageRole::Assistant) {
             messages_.push_back({MessageRole::Assistant, ""});
         }
-    }
-}
-
-void ChatView::append_tool_call(const std::string& text)
-{
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (messages_.empty() || messages_.back().role != MessageRole::Assistant) {
-        messages_.push_back({MessageRole::Assistant, text});
-    } else {
-        messages_.back().content += text;
     }
 }
 
@@ -372,26 +415,6 @@ void ChatView::finish_bash(const std::string& key, const std::string& output, bo
             it->content = output;
             it->bash_running = false;
             it->bash_success = success;
-            return;
-        }
-    }
-}
-
-void ChatView::toggle_bash_view()
-{
-    toggle_last_tool_view();
-}
-
-void ChatView::toggle_last_tool_view()
-{
-    std::lock_guard<std::mutex> lock(mutex_);
-    for (auto it = messages_.rbegin(); it != messages_.rend(); ++it) {
-        if (it->tool_display == ToolDisplay::Bash) {
-            it->bash_expanded = !it->bash_expanded;
-            return;
-        }
-        if (it->tool_display == ToolDisplay::SubAgent) {
-            it->subagent_expanded = !it->subagent_expanded;
             return;
         }
     }
@@ -990,43 +1013,6 @@ Element ChatView::render()
     if (messages_.empty()) {
         children.clear();
         children.push_back(render_welcome_screen(model_));
-    }
-
-    if (false) {
-        auto title = text("   █  █  █▀▀█  █▀▀█  █▀▀█  █▀▀█   ") | bold | color(Color::White) | hcenter;
-        auto title2 = text("  █▀▀█  █▄▄█  █▄▄▀  █  █  █▄▄█   ") | bold | color(Color::White) | hcenter;
-        auto subtitle = text("Karna - Term-based AI coding harness") | hcenter | color(Color::GrayLight);
-        
-        auto section_tips = vbox({
-            text("Tips:") | bold | color(Color::White),
-            text(" • Type a message or ask a question to start coding.") | color(Color::GrayLight),
-            text(" • Use slash commands like /help, /model, /clear.") | color(Color::GrayLight),
-            text(" • Press Up/Down arrow keys to navigate input history.") | color(Color::GrayLight),
-            text(" • Press F5 or Escape to cancel active request.") | color(Color::GrayLight),
-        });
-
-        auto section_info = vbox({
-            text("System Info:") | bold | color(Color::White),
-            text(" • Theme: Monochrome Grayscale") | color(Color::GrayLight),
-            text(" • Status: Ready and listening") | color(Color::GrayLight),
-        });
-
-        auto card_content = vbox({
-            title,
-            title2,
-            text(""),
-            subtitle,
-            text(""),
-            separator() | color(Color::GrayDark),
-            text(""),
-            section_tips,
-            text(""),
-            separator() | color(Color::GrayDark),
-            text(""),
-            section_info,
-        }) | size(WIDTH, LESS_THAN, 60) | borderRounded | color(Color::GrayDark) | center;
-
-        children.push_back(card_content);
     }
 
     auto content = vbox(std::move(children));

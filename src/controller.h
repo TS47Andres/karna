@@ -68,6 +68,7 @@ private:
         json arguments{json::object()};
         json data{json::object()};
         std::string display_key;
+        std::string display_transcript;
     };
 
     SessionRuntime* runtime(const std::string& id) const;
