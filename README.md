@@ -182,17 +182,20 @@ Controller ---- SessionStore ---- .karna/
 ## Project layout
 
 <pre><code>src/
+|-- main.cpp      CLI application entry point
+|-- controller.*  Application controller and orchestration
 |-- cli/          CLI entry points
 |-- commands/     Interactive chat commands
 |-- config/       TOML configuration
 |-- core/         Sessions, messages, providers, and tool interfaces
-|-- io/           File operations
-|-- net/          Network setup
-|-- process/      Shell process execution
-|-- project/      Project and Git context
+|-- io/            File operations
+|-- net/           Network setup
+|-- process/       Shell process execution
+|-- project/       Project and Git context
 |-- providers/    Model provider implementations
+|-- token/        Token counting and estimation
 |-- tools/        Built-in coding tools
-+-- tui/          FTXUI interface and widgets</code></pre>
++-- tui/           FTXUI interface and widgets</code></pre>
 
 ## Security and privacy
 
