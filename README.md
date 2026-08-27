@@ -97,9 +97,7 @@ View the saved configuration:
 
 <pre><code>.\build-msys\karna.exe config</code></pre>
 
-Karna stores configuration, the active session ID, and session files in a project-local .karna directory. Add it to .gitignore:
-
-<pre><code>.karna/</code></pre>
+Karna stores configuration, the active session ID, and session files in a project-local .karna directory. The repository's .gitignore already excludes .karna/ from version control.
 
 ## CLI commands
 
