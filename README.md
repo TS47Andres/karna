@@ -222,7 +222,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. Keep changes 
 
 ## License
 
-No license file is currently included. All rights remain with the repository author until a license is added.
+Karna is licensed under the [MIT License](LICENSE).
 
 ## Repository tags
 
