@@ -223,25 +223,35 @@ Component InputBar::build()
 
 void InputBar::update_suggestions(const std::string& query)
 {
-    if (!command_registry_) {
-        show_suggestions_ = false;
-        return;
-    }
-
     suggestions_.clear();
     selected_index_ = -1;
 
-    auto all_commands = command_registry_->all();
     std::string lower_query;
     for (auto c : query) lower_query += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
-    for (const auto* cmd : all_commands) {
-        std::string cmd_lower;
-        for (auto c : cmd->name()) cmd_lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-
-        if (cmd_lower.find(lower_query) == 0) {
-            suggestions_.push_back({cmd->name(), cmd->description(), false});
+    const std::vector<Suggestion> built_in_commands = {
+        {"access", "Change tool access mode (full, confirm, or auto)", false},
+    };
+    for (const auto& suggestion : built_in_commands) {
+        std::string command_lower;
+        for (auto c : suggestion.name) command_lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (command_lower.find(lower_query) == 0) {
+            suggestions_.push_back(suggestion);
             if (static_cast<int>(suggestions_.size()) >= 5) break;
+        }
+    }
+
+    if (command_registry_ && static_cast<int>(suggestions_.size()) < 5) {
+        auto all_commands = command_registry_->all();
+
+        for (const auto* cmd : all_commands) {
+            std::string cmd_lower;
+            for (auto c : cmd->name()) cmd_lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+            if (cmd_lower.find(lower_query) == 0) {
+                suggestions_.push_back({cmd->name(), cmd->description(), false});
+                if (static_cast<int>(suggestions_.size()) >= 5) break;
+            }
         }
     }
 

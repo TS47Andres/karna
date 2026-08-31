@@ -14,6 +14,7 @@ Config Config::default_config()
     cfg.openrouter.api_key = "";
     cfg.exa.api_key = "";
     cfg.exa.num_results = 5;
+    cfg.access_mode = "confirm";
     return cfg;
 }
 
@@ -41,6 +42,7 @@ Config Config::load_from_file(const std::string& path)
 
     try {
         auto tbl = toml::parse_file(path);
+        if (auto* mode = tbl.get("access_mode"); mode && mode->is_string()) cfg.access_mode = mode->value_or("confirm");
 
         if (auto* openrouter = tbl["openrouter"].as_table()) {
             if (auto* key = openrouter->get("api_key")) {
@@ -79,6 +81,7 @@ void Config::save(const std::string& path)
     }
 
     toml::table tbl;
+    tbl.emplace("access_mode", access_mode);
 
     toml::table or_tbl;
     or_tbl.emplace("api_key", openrouter.api_key);

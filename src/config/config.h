@@ -17,6 +17,7 @@ struct ExaConfig {
 struct Config {
     ProviderConfig openrouter;
     ExaConfig exa;
+    std::string access_mode{"confirm"};
 
     static Config load();
     static Config load_from_file(const std::string& path);

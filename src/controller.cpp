@@ -16,6 +16,8 @@
 #include <sstream>
 #include <thread>
 #include <iostream>
+#include <condition_variable>
+#include <optional>
 
 namespace {
 constexpr int kDefaultBashTimeoutMs = 60 * 1000;
@@ -105,6 +107,14 @@ Controller::Controller()
 
 Controller::~Controller()
 {
+    {
+        std::lock_guard<std::mutex> lock(access_mutex_);
+        if (access_prompt_active_) {
+            pending_access_decision_ = AccessDecision::Deny;
+            access_prompt_active_ = false;
+        }
+    }
+    access_cv_.notify_all();
     for (auto& [id, runtime] : sessions_) {
         runtime->tool_cancel_requested.store(true);
         if (runtime->session.provider()) {
@@ -336,6 +346,11 @@ void Controller::show_sessions()
 
 void Controller::setup_tools()
 {
+    access_controller_ = std::make_unique<AccessController>(config_.access_mode,
+        [this](const std::string& detail) { return request_access_confirmation(detail); },
+        [this](const std::string& function_name, const std::string& detail, const std::string& model) {
+            return request_automatic_decision(function_name, detail, model);
+        });
     tool_registry_.register_tool(std::make_unique<ReadTool>());
     tool_registry_.register_tool(std::make_unique<WriteTool>());
     tool_registry_.register_tool(std::make_unique<EditTool>());
@@ -392,6 +407,7 @@ void Controller::run_chat(const std::string& initial_prompt)
 
     tui_->sidebar().set_project_context(project_ctx);
     tui_->sidebar().set_model(active_runtime().session.model());
+    tui_->sidebar().set_access_mode(config_.access_mode);
     tui_->sidebar().set_token_count(
         active_runtime().session.total_usage().prompt_tokens,
         active_runtime().session.total_usage().completion_tokens);
@@ -446,6 +462,13 @@ void Controller::handle_user_input(const std::string& text)
 
 void Controller::handle_slash_command(const std::string& cmd, const std::string& args)
 {
+    if (cmd == "access") {
+        const auto mode = AccessController::normalize_mode(trim_copy(args));
+        if (args.empty() || (mode != "full" && mode != "confirm" && mode != "auto"))
+            tui_->chat_view().show_system_message("Access mode: " + config_.access_mode + ". Usage: /access full|confirm|auto");
+        else { set_access_mode(mode); tui_->chat_view().show_system_message("Access mode set to " + mode + "."); }
+        tui_->request_refresh(); return;
+    }
     if (cmd == "new") {
         if (!active_runtime().session.history().empty()) {
             create_session();
@@ -733,6 +756,12 @@ void Controller::execute_tool_calls_and_continue(const std::string& session_id, 
 
                     if (tc.function_name.empty()) {
                         execution.output = "tool name was empty";
+                        results.push_back(std::move(execution));
+                        continue;
+                    }
+
+                    if (!access_controller_ || access_controller_->decide(tc, runtime->session.model()) != AccessDecision::Allow) {
+                        execution.output = "Access denied (fail closed)";
                         results.push_back(std::move(execution));
                         continue;
                     }
@@ -1120,4 +1149,109 @@ void Controller::set_exa_api_key(const std::string& api_key)
     }
 
     tui_->request_refresh();
+}
+
+void Controller::set_access_mode(const std::string& mode)
+{
+    config_.access_mode = AccessController::normalize_mode(mode);
+    config_.save();
+    if (access_controller_) {
+        access_controller_ = std::make_unique<AccessController>(config_.access_mode,
+            [this](const std::string& detail) { return request_access_confirmation(detail); },
+            [this](const std::string& function_name, const std::string& detail, const std::string& model) {
+                return request_automatic_decision(function_name, detail, model);
+            });
+        if (tui_) tui_->sidebar().set_access_mode(config_.access_mode);
+    }
+}
+
+AccessDecision Controller::request_access_confirmation(const std::string& detail)
+{
+    std::unique_lock<std::mutex> lock(access_mutex_);
+    if (access_prompt_active_) {
+        access_cv_.wait(lock, [this] { return !access_prompt_active_; });
+    }
+    pending_access_decision_.reset();
+    access_prompt_active_ = true;
+    if (tui_) {
+        tui_->post([this, detail]() {
+            tui_->show_access_prompt(detail,
+                [this]() { resolve_access_prompt(AccessDecision::Allow); },
+                [this]() { resolve_access_prompt(AccessDecision::Deny); });
+        });
+    }
+    access_cv_.wait(lock, [this] { return pending_access_decision_.has_value() || !access_prompt_active_; });
+    const auto decision = pending_access_decision_.value_or(AccessDecision::Deny);
+    pending_access_decision_.reset();
+    access_prompt_active_ = false;
+    lock.unlock();
+    access_cv_.notify_all();
+    return decision;
+}
+
+void Controller::resolve_access_prompt(AccessDecision decision)
+{
+    std::lock_guard<std::mutex> lock(access_mutex_);
+    if (!access_prompt_active_) {
+        if (tui_) tui_->chat_view().show_system_message("No access prompt is waiting.");
+        return;
+    }
+    pending_access_decision_ = decision;
+    if (tui_) tui_->clear_access_prompt();
+    access_cv_.notify_all();
+}
+
+AccessDecision Controller::request_automatic_decision(const std::string& function_name,
+                                                      const std::string& detail,
+                                                      const std::string& model)
+{
+    if (config_.openrouter.api_key.empty()) return AccessDecision::Deny;
+
+    ProviderConfig provider_config = config_.openrouter;
+    provider_config.default_model = model;
+    OpenRouterProvider provider(provider_config);
+    std::vector<Message> history;
+    history.push_back({MessageRole::System,
+        "You are an access-control classifier. Decide whether the proposed tool call is safe. "
+        "Allow only non-destructive inspection or clearly reversible actions. Deny writes, edits, "
+        "deletes, shell commands, credential access, network mutations, or ambiguous requests. "
+        "Reply with exactly JSON: {\"allow\":true} or {\"allow\":false}.",
+        std::nullopt, {}, std::nullopt});
+    history.push_back({MessageRole::User,
+        "Tool: " + function_name + "\n" + detail,
+        std::nullopt, {}, std::nullopt});
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::string response;
+    bool finished = false;
+    bool failed = false;
+    provider.send(history, json::array(), model,
+        [&](Delta delta) {
+            if (delta.content) response += *delta.content;
+        },
+        [&](std::string) {
+            std::lock_guard<std::mutex> lock(mutex);
+            failed = true;
+            finished = true;
+            cv.notify_all();
+        },
+        [&](Usage) {
+            std::lock_guard<std::mutex> lock(mutex);
+            finished = true;
+            cv.notify_all();
+        });
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        cv.wait_for(lock, std::chrono::seconds(30), [&] { return finished; });
+    }
+    if (failed || response.empty()) return AccessDecision::Deny;
+    try {
+        const auto parsed = json::parse(response);
+        if (parsed.contains("allow") && parsed["allow"].is_boolean()) {
+            return parsed["allow"].get<bool>() ? AccessDecision::Allow : AccessDecision::Deny;
+        }
+    } catch (...) {
+    }
+    return AccessDecision::Deny;
 }

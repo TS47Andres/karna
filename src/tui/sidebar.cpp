@@ -24,6 +24,12 @@ void Sidebar::set_model(const std::string& model)
     model_ = model;
 }
 
+void Sidebar::set_access_mode(const std::string& mode)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    access_mode_ = mode;
+}
+
 void Sidebar::set_token_count(int prompt, int completion)
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -90,6 +96,13 @@ Element Sidebar::render()
         model_str = model_str.substr(0, 21) + "...";
     }
     session_elements.push_back(hbox({ text("Model: ") | color_label, text(model_str) | color_value }));
+    Color access_color = Color(Color::Orange1);
+    if (access_mode_ == "confirm") {
+        access_color = Color(Color::Green);
+    } else if (access_mode_ == "full") {
+        access_color = Color(Color::Red);
+    }
+    session_elements.push_back(hbox({ text("Access: ") | color_label, text(access_mode_) | color(access_color) | bold }));
     session_elements.push_back(hbox({ text("Prompt: ") | color_label, text(std::to_string(prompt_tokens_)) | color_dim }));
     session_elements.push_back(hbox({ text("Compl : ") | color_label, text(std::to_string(completion_tokens_)) | color_dim }));
     session_elements.push_back(hbox({ text("Total : ") | color_label, text(std::to_string(prompt_tokens_ + completion_tokens_)) | color_value }));

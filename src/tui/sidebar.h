@@ -13,6 +13,7 @@ public:
 
     void set_project_context(const ProjectContext& ctx);
     void set_model(const std::string& model);
+    void set_access_mode(const std::string& mode);
     void set_token_count(int prompt, int completion);
     void set_context(int used, int available);
 
@@ -20,6 +21,7 @@ private:
     mutable std::mutex mutex_;
     ProjectContext project_ctx_;
     std::string model_{"unknown"};
+    std::string access_mode_{"confirm"};
     int prompt_tokens_{0};
     int completion_tokens_{0};
     int context_used_{0};

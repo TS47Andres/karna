@@ -118,6 +118,7 @@ FetchContent_MakeAvailable(md4c)
 
 set(LIB_SOURCES
   src/controller.cpp
+  src/access_control.cpp
   src/config/config.cpp
   src/core/session.cpp
   src/providers/openrouter.cpp

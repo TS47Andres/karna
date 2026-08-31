@@ -6,6 +6,8 @@
 #include <map>
 #include <chrono>
 #include <mutex>
+#include <condition_variable>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -20,6 +22,7 @@
 #include "core/tool.h"
 #include "commands/registry.h"
 #include "tui/app.h"
+#include "access_control.h"
 
 class Controller {
 public:
@@ -60,6 +63,11 @@ private:
 
     json tools_json_;
     std::vector<ModelInfo> model_catalog_;
+    std::unique_ptr<AccessController> access_controller_;
+    std::mutex access_mutex_;
+    std::condition_variable access_cv_;
+    std::optional<AccessDecision> pending_access_decision_;
+    bool access_prompt_active_{false};
 
     struct ToolExecutionResult {
         ToolCall call;
@@ -103,4 +111,10 @@ private:
     void reset_abort_pending();
     void set_api_key(const std::string& api_key);
     void set_exa_api_key(const std::string& api_key);
+    void set_access_mode(const std::string& mode);
+    AccessDecision request_access_confirmation(const std::string& detail);
+    AccessDecision request_automatic_decision(const std::string& function_name,
+                                              const std::string& detail,
+                                              const std::string& model);
+    void resolve_access_prompt(AccessDecision decision);
 };
