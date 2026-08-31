@@ -642,7 +642,6 @@ void Controller::on_delta(const std::string& session_id, const Delta& delta)
     if (session_id == active_session_id_) {
         tui_->chat_view().add_delta(delta);
     }
-    persist(*current);
     tui_->request_refresh();
 }
 
