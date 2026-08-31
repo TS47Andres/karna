@@ -34,12 +34,18 @@ public:
     void request_refresh();
     void set_typing_state(bool typing);
     void post(std::function<void()> callback);
+    void show_access_prompt(const std::string& detail,
+                            std::function<void()> on_allow,
+                            std::function<void()> on_deny);
+    void clear_access_prompt();
 
 private:
     ftxui::ScreenInteractive screen_;
     ftxui::Component main_component_;
     ftxui::Component chat_component_;
     ftxui::Component input_component_;
+    ftxui::Component access_component_;
+    ftxui::Component access_buttons_;
 
     ChatView chat_view_;
     InputBar input_bar_;
@@ -51,6 +57,10 @@ private:
     std::thread refresh_thread_;
     std::atomic<bool> run_refresh_thread_{true};
     bool last_typing_state_{false};
+    bool access_prompt_active_{false};
+    std::string access_prompt_detail_;
+    std::function<void()> on_access_allow_;
+    std::function<void()> on_access_deny_;
     std::mutex callbacks_mutex_;
     std::queue<std::function<void()>> callbacks_;
 };

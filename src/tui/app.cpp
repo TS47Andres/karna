@@ -6,7 +6,7 @@ using namespace ftxui;
 TuiApp::TuiApp()
     : screen_(ScreenInteractive::Fullscreen())
 {
-    screen_.TrackMouse(false);
+    screen_.TrackMouse(true);
 }
 
 TuiApp::~TuiApp()
@@ -45,11 +45,23 @@ void TuiApp::run()
 
     chat_component_ = chat_view_.build();
     input_component_ = input_bar_.build();
+    access_buttons_ = Container::Horizontal({
+        Button(" Allow ", [this] { if (on_access_allow_) on_access_allow_(); }),
+        Button(" Deny ", [this] { if (on_access_deny_) on_access_deny_(); })
+    });
+    access_component_ = Renderer(access_buttons_, [this] {
+        if (!access_prompt_active_) return text("");
+        return vbox({
+            paragraph("Approval required: " + access_prompt_detail_),
+            access_buttons_->Render()
+        }) | borderRounded | color(Color::Yellow);
+    });
     auto status_component = status_bar_.build();
     auto sidebar_component = sidebar_.build();
 
     auto container = Container::Vertical({
         chat_component_,
+        access_component_,
         input_component_,
         sidebar_component,
     });
@@ -64,6 +76,7 @@ void TuiApp::run()
         auto left_side = vbox({
             chat_elem,
             separator() | color(separator_color),
+            access_component_->Render(),
             input_elem,
         }) | flex;
 
@@ -229,5 +242,24 @@ void TuiApp::post(std::function<void()> callback)
         std::lock_guard<std::mutex> lock(callbacks_mutex_);
         callbacks_.push(std::move(callback));
     }
+    request_refresh();
+}
+
+void TuiApp::show_access_prompt(const std::string& detail,
+                                std::function<void()> on_allow,
+                                std::function<void()> on_deny)
+{
+    access_prompt_detail_ = detail;
+    on_access_allow_ = std::move(on_allow);
+    on_access_deny_ = std::move(on_deny);
+    access_prompt_active_ = true;
+    request_refresh();
+}
+
+void TuiApp::clear_access_prompt()
+{
+    access_prompt_active_ = false;
+    on_access_allow_ = {};
+    on_access_deny_ = {};
     request_refresh();
 }
