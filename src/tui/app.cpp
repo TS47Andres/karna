@@ -156,6 +156,7 @@ void TuiApp::run()
             return true;
         }
         if (event == Event::Custom) {
+            refresh_pending_.store(false);
             std::queue<std::function<void()>> callbacks;
             {
                 std::lock_guard<std::mutex> lock(callbacks_mutex_);
@@ -233,7 +234,10 @@ void TuiApp::set_on_callback_error(std::function<void(std::string)> callback)
 
 void TuiApp::request_refresh()
 {
-    screen_.PostEvent(Event::Custom);
+    bool expected = false;
+    if (refresh_pending_.compare_exchange_strong(expected, true)) {
+        screen_.PostEvent(Event::Custom);
+    }
 }
 
 void TuiApp::post(std::function<void()> callback)

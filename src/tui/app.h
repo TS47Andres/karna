@@ -56,6 +56,7 @@ private:
     std::function<void(std::string)> on_callback_error_;
     std::thread refresh_thread_;
     std::atomic<bool> run_refresh_thread_{true};
+    std::atomic<bool> refresh_pending_{false};
     bool last_typing_state_{false};
     bool access_prompt_active_{false};
     std::string access_prompt_detail_;

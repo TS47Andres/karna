@@ -1086,13 +1086,7 @@ void ChatView::scroll_to_end()
 bool ChatView::advance_scroll_animation()
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    const float distance = scroll_target_ - scroll_position_;
-    if (std::abs(distance) < 0.01f) {
-        scroll_position_ = scroll_target_;
-        return false;
-    }
-
-    const float step = std::clamp(distance * 0.28f, -1.0f, 1.0f);
-    scroll_position_ += step;
+    if (scroll_position_ == scroll_target_) return false;
+    scroll_position_ = scroll_target_;
     return true;
 }
