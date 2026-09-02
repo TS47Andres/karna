@@ -39,9 +39,17 @@ private:
         bool is_session{false};
         bool session_active{false};
         bool session_running{false};
+        bool is_argument{false};
+        bool has_children{false};
+        std::string display;
+        std::string completion;
     };
 
+    void update_suggestions_for_current_input();
     void update_suggestions(const std::string& query);
+    void update_argument_suggestions(const std::string& command_name,
+                                     size_t command_end,
+                                     const std::string& text);
     void update_model_suggestions(const std::string& query);
     void update_session_suggestions(const std::string& query);
     void apply_suggestion();
@@ -58,6 +66,7 @@ private:
     int selected_index_{-1};
     bool show_suggestions_{false};
     ftxui::Component input_component_;
+    int cursor_position_{0};
     std::vector<ModelInfo> models_;
     std::vector<SessionChoice> sessions_;
 };

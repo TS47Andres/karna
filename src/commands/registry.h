@@ -11,6 +11,7 @@
 #include "commands/new_cmd.h"
 #include "commands/delete_cmd.h"
 #include "commands/connect.h"
+#include "commands/access.h"
 
 class CommandInitializer {
 public:

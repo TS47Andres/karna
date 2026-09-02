@@ -2,6 +2,7 @@
 
 void CommandInitializer::register_all(CommandRegistry& registry)
 {
+    registry.register_command(std::make_unique<AccessCommand>());
     registry.register_command(std::make_unique<HelpCommand>());
     registry.register_command(std::make_unique<ClearCommand>());
     registry.register_command(std::make_unique<ModelCommand>());

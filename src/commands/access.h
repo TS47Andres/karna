@@ -2,7 +2,9 @@
 
 #include "core/command.h"
 
-class SessionsCommand : public Command {
+// Access is handled by Controller because changing it is a controller-level
+// operation. The command still owns its metadata and fixed autocomplete values.
+class AccessCommand : public Command {
 public:
     std::string name() const override;
     std::string description() const override;

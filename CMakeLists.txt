@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(karna VERSION 0.1.1 LANGUAGES CXX C)
+project(karna VERSION 0.1.2 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -123,6 +123,7 @@ set(LIB_SOURCES
   src/core/session.cpp
   src/providers/openrouter.cpp
   src/commands/connect.cpp
+  src/commands/access.cpp
   src/tools/registry.cpp
   src/tools/read.cpp
   src/tools/write.cpp

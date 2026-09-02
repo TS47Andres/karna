@@ -4,7 +4,7 @@
 #include <ftxui/component/component_options.hpp>
 #include <algorithm>
 #include <cctype>
-#include <string_view>
+#include <utility>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -14,6 +14,27 @@
 #endif
 
 using namespace ftxui;
+
+namespace {
+
+bool starts_with_case_insensitive(const std::string& value, const std::string& prefix)
+{
+    if (prefix.size() > value.size()) return false;
+    for (size_t i = 0; i < prefix.size(); ++i) {
+        if (std::tolower(static_cast<unsigned char>(value[i])) !=
+            std::tolower(static_cast<unsigned char>(prefix[i]))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool equal_case_insensitive(const std::string& left, const std::string& right)
+{
+    return left.size() == right.size() && starts_with_case_insensitive(left, right);
+}
+
+} // namespace
 
 #ifdef _WIN32
 static std::string get_clipboard_text()
@@ -81,42 +102,12 @@ Component InputBar::build()
 
     InputOption option;
     option.placeholder = "Type a message... (/help for commands)";
+    option.cursor_position = &cursor_position_;
     option.transform = [](InputState state) {
         return state.element | bgcolor(Color::Default) | color(Color::White);
     };
     option.on_change = [this]() {
-        const auto& text = *input_content_;
-        if (text.empty() || text[0] != '/') {
-            show_suggestions_ = false;
-            return;
-        }
-
-        constexpr std::string_view model_command = "/model";
-        if (text.size() >= model_command.size() &&
-            text.compare(0, model_command.size(), model_command) == 0 &&
-            (text.size() == model_command.size() || std::isspace(static_cast<unsigned char>(text[model_command.size()])))) {
-            size_t query_start = model_command.size();
-            while (query_start < text.size() && std::isspace(static_cast<unsigned char>(text[query_start]))) {
-                ++query_start;
-            }
-            update_model_suggestions(text.substr(query_start));
-            return;
-        }
-
-        constexpr std::string_view sessions_command = "/sessions";
-        if (text.size() >= sessions_command.size() &&
-            text.compare(0, sessions_command.size(), sessions_command) == 0 &&
-            (text.size() == sessions_command.size() ||
-             std::isspace(static_cast<unsigned char>(text[sessions_command.size()])))) {
-            size_t query_start = sessions_command.size();
-            while (query_start < text.size() &&
-                   std::isspace(static_cast<unsigned char>(text[query_start]))) {
-                ++query_start;
-            }
-            update_session_suggestions(text.substr(query_start));
-            return;
-        }
-        update_suggestions(text.substr(1));
+        update_suggestions_for_current_input();
     };
 
     auto input = Input(input_content_.get(), option);
@@ -131,6 +122,7 @@ Component InputBar::build()
                 --history_index_;
             }
             *input_content_ = history_[history_index_];
+            cursor_position_ = static_cast<int>(input_content_->size());
             return true;
         }
         if ((event == Event::ArrowDown || event == Event::ArrowDownCtrl) &&
@@ -138,9 +130,11 @@ Component InputBar::build()
             if (history_index_ < static_cast<int>(history_.size()) - 1) {
                 ++history_index_;
                 *input_content_ = history_[history_index_];
+                cursor_position_ = static_cast<int>(input_content_->size());
             } else {
                 history_index_ = -1;
                 input_content_->clear();
+                cursor_position_ = 0;
             }
             return true;
         }
@@ -187,7 +181,7 @@ Component InputBar::build()
                 selected_index_ = (selected_index_ + 1) % static_cast<int>(suggestions_.size());
                 return true;
             }
-            if (event == Event::Return && selected_index_ >= 0) {
+            if (event == Event::Tab && selected_index_ >= 0) {
                 apply_suggestion();
                 return true;
             }
@@ -210,6 +204,7 @@ Component InputBar::build()
                 if (on_submit_) on_submit_(text);
             }
             input_content_->clear();
+            cursor_position_ = 0;
             show_suggestions_ = false;
             return true;
         }
@@ -229,19 +224,7 @@ void InputBar::update_suggestions(const std::string& query)
     std::string lower_query;
     for (auto c : query) lower_query += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
-    const std::vector<Suggestion> built_in_commands = {
-        {"access", "Change tool access mode (full, confirm, or auto)", false},
-    };
-    for (const auto& suggestion : built_in_commands) {
-        std::string command_lower;
-        for (auto c : suggestion.name) command_lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        if (command_lower.find(lower_query) == 0) {
-            suggestions_.push_back(suggestion);
-            if (static_cast<int>(suggestions_.size()) >= 5) break;
-        }
-    }
-
-    if (command_registry_ && static_cast<int>(suggestions_.size()) < 5) {
+    if (command_registry_) {
         auto all_commands = command_registry_->all();
 
         for (const auto* cmd : all_commands) {
@@ -249,7 +232,12 @@ void InputBar::update_suggestions(const std::string& query)
             for (auto c : cmd->name()) cmd_lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
             if (cmd_lower.find(lower_query) == 0) {
-                suggestions_.push_back({cmd->name(), cmd->description(), false});
+                Suggestion suggestion;
+                suggestion.name = cmd->name();
+                suggestion.description = cmd->description();
+                suggestion.display = "/" + cmd->name();
+                suggestion.completion = "/" + cmd->name() + " ";
+                suggestions_.push_back(std::move(suggestion));
                 if (static_cast<int>(suggestions_.size()) >= 5) break;
             }
         }
@@ -259,6 +247,127 @@ void InputBar::update_suggestions(const std::string& query)
     if (!suggestions_.empty()) {
         selected_index_ = 0;
     }
+}
+
+void InputBar::update_suggestions_for_current_input()
+{
+    if (!input_content_ || input_content_->empty() || (*input_content_)[0] != '/') {
+        show_suggestions_ = false;
+        selected_index_ = -1;
+        return;
+    }
+
+    const std::string& text = *input_content_;
+    const size_t command_end = text.find_first_of(" \t\r\n", 1);
+    if (command_end == std::string::npos) {
+        update_suggestions(text.substr(1));
+        return;
+    }
+
+    const std::string command_name = text.substr(1, command_end - 1);
+    size_t query_start = command_end;
+    while (query_start < text.size() &&
+           std::isspace(static_cast<unsigned char>(text[query_start]))) {
+        ++query_start;
+    }
+
+    if (command_name == "model") {
+        update_model_suggestions(text.substr(query_start));
+        return;
+    }
+    if (command_name == "sessions") {
+        update_session_suggestions(text.substr(query_start));
+        return;
+    }
+
+    update_argument_suggestions(command_name, command_end, text);
+}
+
+void InputBar::update_argument_suggestions(const std::string& command_name,
+                                           size_t command_end,
+                                           const std::string& text)
+{
+    suggestions_.clear();
+    selected_index_ = -1;
+
+    const auto* command = command_registry_ ? command_registry_->find(command_name) : nullptr;
+    if (!command) {
+        show_suggestions_ = false;
+        return;
+    }
+
+    auto options = command->autocomplete_options();
+    if (options.empty()) {
+        show_suggestions_ = false;
+        return;
+    }
+
+    size_t args_start = command_end;
+    while (args_start < text.size() &&
+           std::isspace(static_cast<unsigned char>(text[args_start]))) {
+        ++args_start;
+    }
+
+    size_t token_start = text.size();
+    while (token_start > args_start &&
+           !std::isspace(static_cast<unsigned char>(text[token_start - 1]))) {
+        --token_start;
+    }
+
+    std::vector<std::string> completed_tokens;
+    size_t token = args_start;
+    while (token < token_start) {
+        while (token < token_start &&
+               std::isspace(static_cast<unsigned char>(text[token]))) {
+            ++token;
+        }
+        if (token >= token_start) break;
+
+        size_t token_end = token;
+        while (token_end < token_start &&
+               !std::isspace(static_cast<unsigned char>(text[token_end]))) {
+            ++token_end;
+        }
+        completed_tokens.push_back(text.substr(token, token_end - token));
+        token = token_end;
+    }
+
+    const std::vector<CommandAutocompleteOption>* current_options = &options;
+    for (size_t i = 0; i < completed_tokens.size(); ++i) {
+        const auto& completed = completed_tokens[i];
+        const auto it = std::find_if(current_options->begin(), current_options->end(),
+            [&completed](const auto& option) {
+                return equal_case_insensitive(option.value, completed);
+            });
+        if (it == current_options->end()) {
+            show_suggestions_ = false;
+            return;
+        }
+        current_options = &it->children;
+        if (current_options->empty() && i + 1 < completed_tokens.size()) {
+            show_suggestions_ = false;
+            return;
+        }
+    }
+
+    const std::string query = text.substr(token_start);
+    const std::string prefix = text.substr(0, token_start);
+    for (const auto& option : *current_options) {
+        if (!starts_with_case_insensitive(option.value, query)) continue;
+
+        Suggestion suggestion;
+        suggestion.name = option.value;
+        suggestion.description = option.description;
+        suggestion.is_argument = true;
+        suggestion.has_children = !option.children.empty();
+        suggestion.display = prefix + option.value;
+        suggestion.completion = suggestion.display + (suggestion.has_children ? " " : "");
+        suggestions_.push_back(std::move(suggestion));
+        if (static_cast<int>(suggestions_.size()) >= 8) break;
+    }
+
+    show_suggestions_ = !suggestions_.empty();
+    if (show_suggestions_) selected_index_ = 0;
 }
 
 void InputBar::update_model_suggestions(const std::string& query)
@@ -283,6 +392,8 @@ void InputBar::update_model_suggestions(const std::string& query)
                 description += " (" + std::to_string(model.context_length) + " context)";
             }
             suggestions_.push_back({model.id, description, true});
+            suggestions_.back().display = "/model " + model.id;
+            suggestions_.back().completion = "/model " + model.id + " ";
             if (static_cast<int>(suggestions_.size()) >= 8) break;
         }
     }
@@ -301,6 +412,24 @@ void InputBar::update_session_suggestions(const std::string& query)
     std::string lower_query;
     for (const auto c : query) {
         lower_query += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+
+    if (command_registry_) {
+        if (const auto* command = command_registry_->find("sessions")) {
+            for (const auto& option : command->autocomplete_options()) {
+                if (!starts_with_case_insensitive(option.value, query)) continue;
+
+                Suggestion suggestion;
+                suggestion.name = option.value;
+                suggestion.description = option.description;
+                suggestion.is_argument = true;
+                suggestion.has_children = !option.children.empty();
+                suggestion.display = "/sessions " + option.value;
+                suggestion.completion = suggestion.display + (suggestion.has_children ? " " : "");
+                suggestions_.push_back(std::move(suggestion));
+                if (static_cast<int>(suggestions_.size()) >= 8) break;
+            }
+        }
     }
 
     for (const auto& session : sessions_) {
@@ -322,7 +451,9 @@ void InputBar::update_session_suggestions(const std::string& query)
             session.active,
             session.running
         });
-        if (static_cast<int>(suggestions_.size()) >= 5) break;
+        suggestions_.back().display = "/sessions " + session.id;
+        suggestions_.back().completion = "/sessions " + session.id + " ";
+        if (static_cast<int>(suggestions_.size()) >= 8) break;
     }
 
     show_suggestions_ = !suggestions_.empty();
@@ -333,15 +464,19 @@ void InputBar::apply_suggestion()
 {
     if (selected_index_ < 0 || selected_index_ >= static_cast<int>(suggestions_.size())) return;
 
-    if (suggestions_[selected_index_].is_model) {
-        *input_content_ = "/model " + suggestions_[selected_index_].name + " ";
-    } else if (suggestions_[selected_index_].is_session) {
-        *input_content_ = "/sessions " + suggestions_[selected_index_].name + " ";
-    } else {
-        *input_content_ = "/" + suggestions_[selected_index_].name + " ";
-    }
-    show_suggestions_ = false;
+    const Suggestion suggestion = suggestions_[selected_index_];
+    *input_content_ = suggestion.completion;
+    cursor_position_ = static_cast<int>(input_content_->size());
     selected_index_ = -1;
+
+    if (suggestion.is_argument && suggestion.has_children) {
+        update_suggestions_for_current_input();
+    } else if (!suggestion.is_model && !suggestion.is_session && !suggestion.is_argument) {
+        // Completing a command creates its next argument context immediately.
+        update_suggestions_for_current_input();
+    } else {
+        show_suggestions_ = false;
+    }
 }
 
 Element InputBar::render_suggestion_list()
@@ -354,9 +489,17 @@ Element InputBar::render_suggestion_list()
 
         auto marker = selected ? text(" > ") : text("   ");
         const auto& suggestion = suggestions_[i];
-        auto cmd = text(suggestion.is_session
-            ? "/sessions " + suggestion.name
-            : "/" + suggestion.name);
+        std::string completion_label;
+        if (suggestion.is_argument) {
+            completion_label = suggestion.display;
+        } else if (suggestion.is_session) {
+            completion_label = "/sessions " + suggestion.name;
+        } else if (suggestion.is_model) {
+            completion_label = "/model " + suggestion.name;
+        } else {
+            completion_label = "/" + suggestion.name;
+        }
+        auto cmd = text(completion_label);
         auto desc = text("  " + suggestions_[i].description) | dim;
 
         Element line;
@@ -424,6 +567,7 @@ std::string InputBar::get_text() const
 void InputBar::clear()
 {
     if (input_content_) input_content_->clear();
+    cursor_position_ = 0;
     show_suggestions_ = false;
 }
 
@@ -437,30 +581,17 @@ void InputBar::focus()
 void InputBar::set_command_registry(CommandRegistry* registry)
 {
     command_registry_ = registry;
+    update_suggestions_for_current_input();
 }
 
 void InputBar::set_models(const std::vector<ModelInfo>& models)
 {
     models_ = models;
-    if (input_content_ && input_content_->rfind("/model", 0) == 0) {
-        size_t query_start = 6;
-        while (query_start < input_content_->size() &&
-               std::isspace(static_cast<unsigned char>((*input_content_)[query_start]))) {
-            ++query_start;
-        }
-        update_model_suggestions(input_content_->substr(query_start));
-    }
+    update_suggestions_for_current_input();
 }
 
 void InputBar::set_sessions(const std::vector<SessionChoice>& sessions)
 {
     sessions_ = sessions;
-    if (input_content_ && input_content_->rfind("/sessions", 0) == 0) {
-        size_t query_start = 9;
-        while (query_start < input_content_->size() &&
-               std::isspace(static_cast<unsigned char>((*input_content_)[query_start]))) {
-            ++query_start;
-        }
-        update_session_suggestions(input_content_->substr(query_start));
-    }
+    update_suggestions_for_current_input();
 }

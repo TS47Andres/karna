@@ -20,6 +20,14 @@ struct CommandContext {
     std::function<void(const std::string&)> set_exa_api_key;
 };
 
+// Fixed command arguments that are safe and useful to offer as autocomplete
+// choices. Children describe the next argument level, when a command has one.
+struct CommandAutocompleteOption {
+    std::string value;
+    std::string description;
+    std::vector<CommandAutocompleteOption> children;
+};
+
 class Command {
 public:
     virtual ~Command() = default;
@@ -27,6 +35,7 @@ public:
     virtual std::string name() const = 0;
     virtual std::string description() const = 0;
     virtual void execute(const std::string& args, CommandContext& ctx) = 0;
+    virtual std::vector<CommandAutocompleteOption> autocomplete_options() const { return {}; }
 };
 
 using CommandPtr = std::unique_ptr<Command>;

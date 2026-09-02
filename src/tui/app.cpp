@@ -107,8 +107,14 @@ void TuiApp::run()
             }
             return true;
         }
-        if (event == Event::Tab || event == Event::TabReverse) {
+        if (event == Event::Tab) {
+            if (input_component_ && input_component_->Focused()) {
+                input_component_->OnEvent(event);
+            }
             return true; // Consume Tab to prevent focus loss
+        }
+        if (event == Event::TabReverse) {
+            return true; // Consume reverse Tab to prevent focus loss
         }
         if (event == Event::Character('\x14') && input_bar_.get_text().empty()) {
             chat_view_.focus_next_tool();
